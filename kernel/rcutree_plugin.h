@@ -68,7 +68,7 @@ static void __init rcu_bootup_announce_oddness(void)
 	printk(KERN_INFO "\tAdditional per-CPU info printed with stalls.\n");
 #endif
 #if NUM_RCU_LVL_4 != 0
-	printk(KERN_INFO "\tExperimental four-level hierarchy is enabled.\n");
+	printk(KERN_INFO "\tFour-level hierarchy is enabled.\n");
 #endif
 }
 
