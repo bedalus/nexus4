@@ -87,6 +87,7 @@
  */
 
 #include	<linux/slab.h>
+#include	"slab.h"
 #include	<linux/mm.h>
 #include	<linux/poison.h>
 #include	<linux/swap.h>
@@ -651,7 +652,7 @@ static void init_node_lock_keys(int q)
 {
 	struct cache_sizes *s = malloc_sizes;
 
-	if (g_cpucache_up < LATE)
+	if (slab_state < UP)
 		return;
 
 	for (s = malloc_sizes; s->cs_size != ULONG_MAX; s++) {
@@ -1649,14 +1650,14 @@ void __init kmem_cache_init(void)
 		}
 	}
 
-	g_cpucache_up = EARLY;
+	slab_state = UP;
 }
 
 void __init kmem_cache_init_late(void)
 {
 	struct kmem_cache *cachep;
 
-	g_cpucache_up = LATE;
+	slab_state = UP;
 
 	/* Annotate slab for lockdep -- annotate the malloc caches */
 	init_lock_keys();
@@ -1668,11 +1669,8 @@ void __init kmem_cache_init_late(void)
 			BUG();
 	mutex_unlock(&cache_chain_mutex);
 
-	/* Annotate slab for lockdep -- annotate the malloc caches */
-	init_lock_keys();
-
 	/* Done! */
-	g_cpucache_up = FULL;
+	slab_state = FULL;
 
 	/*
 	 * Register a cpu startup notifier callback that initializes
@@ -1705,7 +1703,7 @@ static int __init cpucache_init(void)
 		start_cpu_timer(cpu);
 
 	/* Done! */
-	g_cpucache_up = FULL;
+	slab_state = FULL;
 	return 0;
 }
 __initcall(cpucache_init);
@@ -2173,10 +2171,10 @@ static size_t calculate_slab_order(struct kmem_cache *cachep,
 
 static int __init_refok setup_cpu_cache(struct kmem_cache *cachep, gfp_t gfp)
 {
-	if (g_cpucache_up >= LATE)
+	if (slab_state >= FULL)
 		return enable_cpucache(cachep, gfp);
 
-	if (g_cpucache_up == NONE) {
+	if (slab_state == DOWN) {
 		/*
 		 * Note: the first kmem_cache_create must create the cache
 		 * that's used by kmalloc(24), otherwise the creation of
@@ -2191,16 +2189,16 @@ static int __init_refok setup_cpu_cache(struct kmem_cache *cachep, gfp_t gfp)
 		 */
 		set_up_list3s(cachep, SIZE_AC);
 		if (INDEX_AC == INDEX_L3)
-			g_cpucache_up = PARTIAL_L3;
+			slab_state = PARTIAL_L3;
 		else
-			g_cpucache_up = PARTIAL_AC;
+			slab_state = PARTIAL_ARRAYCACHE;
 	} else {
 		cachep->array[smp_processor_id()] =
 			kmalloc(sizeof(struct arraycache_init), gfp);
 
-		if (g_cpucache_up == PARTIAL_AC) {
+		if (slab_state == PARTIAL_ARRAYCACHE) {
 			set_up_list3s(cachep, SIZE_L3);
-			g_cpucache_up = PARTIAL_L3;
+			slab_state = PARTIAL_L3;
 		} else {
 			int node;
 			for_each_online_node(node) {
