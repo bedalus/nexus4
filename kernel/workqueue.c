@@ -1126,7 +1126,7 @@ void delayed_work_timer_fn(unsigned long __data)
 
 	__queue_work(smp_processor_id(), cwq->wq, &dwork->work);
 }
-EXPORT_SYMBOL_GPL(delayed_work_timer_fn);
+EXPORT_SYMBOL(delayed_work_timer_fn);
 
 /**
  * queue_delayed_work_on - queue work on specific CPU after delay
