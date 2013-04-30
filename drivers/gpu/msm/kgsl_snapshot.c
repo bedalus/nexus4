@@ -619,6 +619,10 @@ int kgsl_device_snapshot(struct kgsl_device *device, int hang)
 	if (hang)
 		device->snapshot_faultcount++;
 
+	/* increment the hang count (on hang) for good book keeping */
+	if (hang)
+		device->snapshot_faultcount++;
+
 	/*
 	 * The first hang is always the one we are interested in. To
 	 * avoid a subsequent hang blowing away the first, the snapshot
