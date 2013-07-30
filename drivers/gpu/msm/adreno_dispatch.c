@@ -106,6 +106,10 @@ static int fault_detect_read_compare(struct kgsl_device *device)
 	if (_isidle(device) == true)
 		ret = 1;
 
+	/* Check to see if the device is idle - if so report no hang */
+	if (_isidle(device) == true)
+		ret = 1;
+
 	for (i = 0; i < FT_DETECT_REGS_COUNT; i++) {
 		unsigned int val;
 
