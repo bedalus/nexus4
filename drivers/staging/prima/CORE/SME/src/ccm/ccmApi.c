@@ -536,12 +536,9 @@ void ccmCfgCnfMsgHandler(tHalHandle hHal, void *m)
                 /* move the completed req from reqQ to comp[] */
                 if (req->toBeSaved && (CCM_IS_RESULT_SUCCESS(result)))
                 {
-                    if (cfgId < CFG_PARAM_MAX_NUM)
+                    if ((old = pMac->ccm.comp[cfgId]) != NULL)
                     {
-                        if ((old = pMac->ccm.comp[cfgId]) != NULL)
-                        {
-                            freeCfgReq(hHdd, old) ;
-                        }
+                        freeCfgReq(hHdd, old) ;
                     }
                     pMac->ccm.comp[cfgId] = req ;
                 }

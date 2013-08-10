@@ -4957,13 +4957,13 @@ static int iw_qcom_set_wapi_key(struct net_device *dev, struct iw_request_info *
 
     switch ( pWapiKey->keyType )
     {
-        case PAIRWISE_KEY:
+        case HDD_PAIRWISE_WAPI_KEY:
         {
             isConnected = hdd_connIsConnected(pHddStaCtx);
             vos_mem_copy(setKey.peerMac,&pHddStaCtx->conn_info.bssId,WNI_CFG_BSSID_LEN);
             break;
         }
-        case GROUP_KEY:
+        case HDD_GROUP_WAPI_KEY:
         {
             vos_set_macaddr_broadcast( (v_MACADDR_t *)setKey.peerMac );
             break;
@@ -5125,7 +5125,6 @@ static int iw_set_dynamic_mcbc_filter(struct net_device *dev,
     tpSirRcvFltMcAddrList mc_addr_list_ptr;
     int idx;
     eHalStatus ret_val;
-    tANI_U8 mcastBcastFilterSetting;
 
     if (pHddCtx->isLogpInProgress)
     {
@@ -5228,20 +5227,17 @@ static int iw_set_dynamic_mcbc_filter(struct net_device *dev,
                    wlanRxpFilterParam->configuredMcstBcstFilterSetting,
                    wlanRxpFilterParam->setMcstBcstFilter);
 
-            mcastBcastFilterSetting = wlanRxpFilterParam->configuredMcstBcstFilterSetting;
-
             if (eHAL_STATUS_SUCCESS != sme_ConfigureRxpFilter(WLAN_HDD_GET_HAL_CTX(pAdapter),
                                                               wlanRxpFilterParam))
             {
                 hddLog(VOS_TRACE_LEVEL_ERROR,
                        "%s: Failure to execute set HW MC/BC Filter request",
                        __func__);
-                vos_mem_free(wlanRxpFilterParam);
                 return -EINVAL;
             }
 
             pHddCtx->dynamic_mcbc_filter.mcBcFilterSuspend =
-                mcastBcastFilterSetting;
+                wlanRxpFilterParam->configuredMcstBcstFilterSetting;
         }
     }
 
@@ -5792,7 +5788,7 @@ VOS_STATUS iw_set_pno(struct net_device *dev, struct iw_request_info *info,
     <scan_timers> <scan_time> <scan_repeat> <scan_time> <scan_repeat>
 
     e.g:
-    1 2 4 test 0 0 3 1 6 11 2 40 5 test2 4 4 6 1 2 3 4 5 6 1 0 2 5 2 300 0
+    1 2 4 test 0 0 3 1 6 11 2 40 5 test2 4 4 6 1 2 3 4 5 6 1 0 2 5 2 300 0 
 
     this translates into:
     -----------------------------
@@ -5808,7 +5804,7 @@ VOS_STATUS iw_set_pno(struct net_device *dev, struct iw_request_info *info,
     bcast type is non-bcast (directed probe will be sent)
     and must not meet any RSSI threshold
 
-    scan every 5 seconds 2 times, scan every 300 seconds until stopped
+    scan every 5 seconds 2 times, scan every 300 seconds until stopped 
   -----------------------------------------------------------------------*/
   ptr = (char*)(wrqu->data.pointer + nOffset);
 
@@ -5864,7 +5860,7 @@ VOS_STATUS iw_set_pno(struct net_device *dev, struct iw_request_info *info,
     /*Advance to SSID*/
     ptr += nOffset;
 
-    memcpy(pnoRequest.aNetworks[i].ssId.ssId, ptr,
+ memcpy(pnoRequest.aNetworks[i].ssId.ssId, ptr,
            pnoRequest.aNetworks[i].ssId.length);
     ptr += pnoRequest.aNetworks[i].ssId.length;
 
@@ -5945,18 +5941,18 @@ VOS_STATUS iw_set_pno(struct net_device *dev, struct iw_request_info *info,
               &(pnoRequest.scanTimers.ucScanTimersCount), &nOffset);
 
   /*Read the scan timers*/
-  if (( 1 == ucParams ) && ( pnoRequest.scanTimers.ucScanTimersCount > 0 ))
+  if (( 1 == ucParams )&&(  pnoRequest.scanTimers.ucScanTimersCount >= 0 ))
   {
      ptr += nOffset;
 
-     VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-        "Scan timer count %d offset %d",
+     VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO, 
+        "Scan timer count %d offset %d", 
         pnoRequest.scanTimers.ucScanTimersCount,
         nOffset );
 
      if ( SIR_PNO_MAX_SCAN_TIMERS < pnoRequest.scanTimers.ucScanTimersCount )
      {
-       VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
+       VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR, 
                     "Incorrect cmd - too many scan timers");
        return VOS_STATUS_E_FAILURE;
      }
@@ -5968,15 +5964,15 @@ VOS_STATUS iw_set_pno(struct net_device *dev, struct iw_request_info *info,
            &( pnoRequest.scanTimers.aTimerValues[i].uTimerRepeat),
            &nOffset);
 
-        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-            "PNO Timer value %d Timer repeat %d offset %d",
-            pnoRequest.scanTimers.aTimerValues[i].uTimerValue,
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO, 
+            "PNO Timer value %d Timer repeat %d offset %d", 
+            pnoRequest.scanTimers.aTimerValues[i].uTimerValue, 
             pnoRequest.scanTimers.aTimerValues[i].uTimerRepeat,
             nOffset );
 
         if ( 2 != ucParams )
         {
-          VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
+          VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR, 
                     "Incorrect cmd - diff params then expected %d", ucParams);
           return VOS_STATUS_E_FAILURE;
         }
@@ -5987,8 +5983,8 @@ VOS_STATUS iw_set_pno(struct net_device *dev, struct iw_request_info *info,
   }
   else
   {
-    VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-       "No scan timers provided param count %d scan timers %d",
+    VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO, 
+       "No scan timers provided param count %d scan timers %d", 
         ucParams,  pnoRequest.scanTimers.ucScanTimersCount );
 
     /*Scan timers defaults to 5 minutes*/
@@ -6151,7 +6147,7 @@ int hdd_setBand_helper(struct net_device *dev, tANI_U8* ptr)
                      &pAdapter->disconnect_comp_var,
                      msecs_to_jiffies(WLAN_WAIT_TIME_DISCONNECT));
 
-             if (lrc <= 0) {
+             if(lrc <= 0) {
 
                 hddLog(VOS_TRACE_LEVEL_ERROR,"%s: %s while while waiting for csrRoamDisconnect ",
                  __func__, (0 == lrc) ? "Timeout" : "Interrupt");
@@ -6165,7 +6161,7 @@ int hdd_setBand_helper(struct net_device *dev, tANI_U8* ptr)
 #if  defined (WLAN_FEATURE_VOWIFI_11R) || defined (FEATURE_WLAN_CCX) || defined(FEATURE_WLAN_LFR)
         sme_UpdateBgScanConfigIniChannelList(hHal, (eCsrBand) band);
 #endif
-        if (eHAL_STATUS_SUCCESS != sme_SetFreqBand(hHal, (eCsrBand)band))
+        if(eHAL_STATUS_SUCCESS != sme_SetFreqBand(hHal, (eCsrBand)band))
         {
              VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_FATAL,
                      "%s: failed to set the band value to %u ",

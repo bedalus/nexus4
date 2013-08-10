@@ -363,11 +363,6 @@ typedef enum
 #define CFG_ROAM_PREFER_5GHZ_MIN              ( 0 )  
 #define CFG_ROAM_PREFER_5GHZ_MAX              ( 1 )  
 #define CFG_ROAM_PREFER_5GHZ_DEFAULT          ( 1 )
-
-#define CFG_ROAM_INTRA_BAND                   "gRoamIntraBand"
-#define CFG_ROAM_INTRA_BAND_MIN               ( 0 )
-#define CFG_ROAM_INTRA_BAND_MAX               ( 1 )
-#define CFG_ROAM_INTRA_BAND_DEFAULT           ( 0 )
 #endif
 
 #define CFG_STAT_TIMER_INTERVAL_NAME           "gStatTimerInterval"
@@ -575,21 +570,6 @@ typedef enum
 #define CFG_ACTIVE_MIN_CHANNEL_TIME_BTC_MIN        ( 0 )
 #define CFG_ACTIVE_MIN_CHANNEL_TIME_BTC_MAX        ( 10000 )
 #define CFG_ACTIVE_MIN_CHANNEL_TIME_BTC_DEFAULT    ( 60 )
-
-#define CFG_RETRY_LIMIT_ZERO_NAME       "gRetryLimitZero"
-#define CFG_RETRY_LIMIT_ZERO_MIN        ( 0 )
-#define CFG_RETRY_LIMIT_ZERO_MAX        ( 15 )
-#define CFG_RETRY_LIMIT_ZERO_DEFAULT    ( 5 )
-
-#define CFG_RETRY_LIMIT_ONE_NAME       "gRetryLimitOne"
-#define CFG_RETRY_LIMIT_ONE_MIN        ( 0 )
-#define CFG_RETRY_LIMIT_ONE_MAX        ( 15 )
-#define CFG_RETRY_LIMIT_ONE_DEFAULT    ( 10 )
-
-#define CFG_RETRY_LIMIT_TWO_NAME       "gRetryLimitTwo"
-#define CFG_RETRY_LIMIT_TWO_MIN        ( 0 )
-#define CFG_RETRY_LIMIT_TWO_MAX        ( 15 )
-#define CFG_RETRY_LIMIT_TWO_DEFAULT    ( 15 )
 
 #ifdef WLAN_AP_STA_CONCURRENCY
 
@@ -810,15 +790,7 @@ typedef enum
 #define CFG_IMMEDIATE_ROAM_RSSI_DIFF_MIN                    (0)
 #define CFG_IMMEDIATE_ROAM_RSSI_DIFF_MAX                    (125)
 #define CFG_IMMEDIATE_ROAM_RSSI_DIFF_DEFAULT                (3)
-
 #endif /* (WLAN_FEATURE_VOWIFI_11R) || defined (FEATURE_WLAN_CCX) || defined(FEATURE_WLAN_LFR) */
-
-#ifdef FEATURE_WLAN_OKC
-#define CFG_OKC_FEATURE_ENABLED_NAME                       "OkcEnabled"
-#define CFG_OKC_FEATURE_ENABLED_MIN                        (0)
-#define CFG_OKC_FEATURE_ENABLED_MAX                        (1)
-#define CFG_OKC_FEATURE_ENABLED_DEFAULT                    (1)
-#endif
 
 #define CFG_QOS_WMM_PKT_CLASSIFY_BASIS_NAME                "PktClassificationBasis" // DSCP or 802.1Q
 #define CFG_QOS_WMM_PKT_CLASSIFY_BASIS_MIN                  (0)
@@ -1874,9 +1846,7 @@ typedef struct
    v_U8_t                       RoamRssiDiff;
    v_U8_t                       nImmediateRoamRssiDiff;
 #endif
-#ifdef FEATURE_WLAN_OKC
-   v_BOOL_t                     isOkcIniFeatureEnabled;
-#endif
+
    hdd_wmm_classification_t     PktClassificationBasis; // DSCP or 802.1Q
    v_BOOL_t                     bImplicitQosEnabled;
 
@@ -1979,7 +1949,6 @@ typedef struct
    v_S31_t                     linkSpeedRssiHigh;
 #if  defined (WLAN_FEATURE_VOWIFI_11R) || defined (FEATURE_WLAN_CCX) || defined(FEATURE_WLAN_LFR)
    v_BOOL_t                    nRoamPrefer5GHz;
-   v_BOOL_t                    nRoamIntraBand;
 #endif
    v_S31_t                     linkSpeedRssiMid;
    v_S31_t                     linkSpeedRssiLow;
@@ -2032,9 +2001,6 @@ typedef struct
    v_U8_t                      enableMCCAdaptiveScheduler;
    v_BOOL_t                    isAndroidPsEn;
    v_BOOL_t                    sapAllowAllChannel;
-   v_U8_t                      retryLimitZero;
-   v_U8_t                      retryLimitOne;
-   v_U8_t                      retryLimitTwo;
 } hdd_config_t;
 /*--------------------------------------------------------------------------- 
   Function declarations and documenation
@@ -2045,7 +2011,6 @@ v_BOOL_t hdd_update_config_dat ( hdd_context_t *pHddCtx );
 VOS_STATUS hdd_cfg_get_config(hdd_context_t *pHddCtx, char *pBuf, int buflen);
 eCsrPhyMode hdd_cfg_xlate_to_csr_phy_mode( eHddDot11Mode dot11Mode );
 VOS_STATUS hdd_execute_config_command(hdd_context_t *pHddCtx, char *command);
-tANI_BOOLEAN hdd_is_okc_mode_enabled(hdd_context_t *pHddCtx);
 
 #define FIELD_OFFSET(__type, __field) ((unsigned int)(&((__type *)0)->__field))
 #define VAR_OFFSET( _Struct, _Var ) ( (unsigned int) FIELD_OFFSET(_Struct, _Var ) )

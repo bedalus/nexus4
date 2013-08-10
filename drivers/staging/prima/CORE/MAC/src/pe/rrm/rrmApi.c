@@ -194,7 +194,10 @@ rrmSendSetMaxTxPowerReq ( tpAniSirGlobal pMac, tPowerdBm txPower, tpPESession pS
    if( eSIR_SUCCESS != (retCode = wdaPostCtrlMsg( pMac, &msgQ )))
    {
       limLog( pMac, LOGP, FL("Posting WDA_SET_MAX_TX_POWER_REQ to HAL failed, reason=%X"), retCode );
-      palFreeMemory( pMac->hHdd, (tANI_U8 *) pMaxTxParams );
+      if (NULL != pMaxTxParams)
+      {
+         palFreeMemory( pMac->hHdd, (tANI_U8 *) pMaxTxParams );
+      }
       return retCode;
    }
    return retCode;
@@ -1010,7 +1013,6 @@ rrmProcessRadioMeasurementRequest( tpAniSirGlobal pMac,
                {
                   limLog( pMac, LOGP,
                         FL( "Unable to PAL allocate memory during RRM Req processing" ));
-                  palFreeMemory( pMac->hHdd, pReport );
                   return eSIR_MEM_ALLOC_FAILED;
                }
 #if defined WLAN_VOWIFI_DEBUG

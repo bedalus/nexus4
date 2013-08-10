@@ -284,22 +284,12 @@ static v_VOID_t tx_main_timer_func( v_PVOID_t functionContext )
 {
    TX_TIMER *timer_ptr = (TX_TIMER *)functionContext;
 
+   VOS_ASSERT(NULL != timer_ptr);
 
-   if (NULL == timer_ptr)
-   {
-       VOS_ASSERT(0);
-       return;
-   }
-
-
-   if (NULL == timer_ptr->pExpireFunc)
-   {
-       VOS_ASSERT(0);
-       return;
-   }
+   VOS_ASSERT(NULL != timer_ptr->pExpireFunc);
 
    VOS_TRACE(VOS_MODULE_ID_SYS, VOS_TRACE_LEVEL_INFO, 
-             "Timer %s triggered", TIMER_NAME);
+             "Timer %s triggered\n", TIMER_NAME);
 
    // Now call the actual timer function, taking the function pointer,
    // from the timer structure.
@@ -316,7 +306,7 @@ static v_VOID_t tx_main_timer_func( v_PVOID_t functionContext )
       if (VOS_STATUS_SUCCESS != status)
       {
          VOS_TRACE(VOS_MODULE_ID_SYS, VOS_TRACE_LEVEL_WARN, 
-             "Unable to reschedule timer %s; status=%d", TIMER_NAME, status);
+             "Unable to reschedule timer %s; status=%d\n", TIMER_NAME, status);
       }
    }
 } /*** tx_timer_change() ***/
@@ -413,7 +403,7 @@ v_UINT_t tx_timer_create_intern( v_PVOID_t pMacGlobal, TX_TIMER *timer_ptr,
 
 #ifdef WLAN_DEBUG
     // Store the timer name
-    strlcpy(timer_ptr->timerName, name_ptr, sizeof(timer_ptr->timerName));
+    vos_mem_copy(timer_ptr->timerName, name_ptr, sizeof(timer_ptr->timerName));
 #endif // Store the timer name, for Debug build only
 
     status = vos_timer_init( &timer_ptr->vosTimer, VOS_TIMER_TYPE_SW, 

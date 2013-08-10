@@ -123,9 +123,6 @@
 /** Maximum time(ms) to wait for tdls add sta to complete **/
 #define WAIT_TIME_TDLS_ADD_STA      1500
 
-/** Maximum time(ms) to wait for tdls del sta to complete **/
-#define WAIT_TIME_TDLS_DEL_STA      1500
-
 /** Maximum time(ms) to wait for tdls mgmt to complete **/
 #define WAIT_TIME_TDLS_MGMT         11000
 
@@ -169,18 +166,13 @@
 #define WLAN_HDD_PUBLIC_ACTION_TDLS_DISC_RESP 14
 #define WLAN_HDD_TDLS_ACTION_FRAME 12
 #ifdef WLAN_FEATURE_HOLD_RX_WAKELOCK
-#define HDD_WAKE_LOCK_DURATION msecs_to_jiffies(50)
+#define HDD_WAKE_LOCK_DURATION 50
 #endif
 
 #define HDD_SAP_WAKE_LOCK_DURATION 10000 //10 sec
 
 /* Maximum number of interfaces allowed(STA, P2P Device, P2P Interface) */
 #define WLAN_MAX_INTERFACES 3
-
-#ifdef WLAN_FEATURE_GTK_OFFLOAD
-#define GTK_OFFLOAD_ENABLE  0
-#define GTK_OFFLOAD_DISABLE 1
-#endif
 
 typedef struct hdd_tx_rx_stats_s
 {
@@ -285,6 +277,8 @@ typedef struct roaming_info_s
 #define MAX_NUM_AKM_SUITES    16
 #define MAX_NUM_UNI_SUITES    16
 #define MAX_NUM_BKIDS         16
+#define HDD_PAIRWISE_WAPI_KEY 0
+#define HDD_GROUP_WAPI_KEY    1
 
 /** WAPI AUTH mode definition */
 enum _WAPIAuthMode
@@ -499,13 +493,6 @@ typedef enum{
     HDD_SSR_DISABLED,
 }e_hdd_ssr_required;
 
-#ifdef WLAN_FEATURE_GTK_OFFLOAD
-typedef struct
-{
-   v_BOOL_t requested;
-   tSirGtkOffloadParams gtkOffloadReqParams;
-}hddGtkOffloadParams;
-#endif
 
 struct hdd_station_ctx
 {
@@ -526,10 +513,6 @@ struct hdd_station_ctx
 
 #if  defined (WLAN_FEATURE_VOWIFI_11R) || defined (FEATURE_WLAN_CCX) || defined(FEATURE_WLAN_LFR)
    int     ft_carrier_on;
-#endif
-
-#ifdef WLAN_FEATURE_GTK_OFFLOAD
-   hddGtkOffloadParams gtkOffloadRequestParams;
 #endif
 };
 
@@ -736,7 +719,6 @@ struct hdd_adapter_s
 
 #ifdef FEATURE_WLAN_TDLS
    struct completion tdls_add_station_comp;
-   struct completion tdls_del_station_comp;
    struct completion tdls_mgmt_comp;
    eHalStatus tdlsAddStaStatus;
 #endif
@@ -1048,7 +1030,6 @@ VOS_STATUS hdd_enable_bmps_imps(hdd_context_t *pHddCtx);
 VOS_STATUS hdd_disable_bmps_imps(hdd_context_t *pHddCtx, tANI_U8 session_type);
 
 eHalStatus hdd_smeCloseSessionCallback(void *pContext);
-void wlan_hdd_cfg80211_update_reg_info(struct wiphy *wiphy);
 VOS_STATUS wlan_hdd_restart_driver(hdd_context_t *pHddCtx);
 void hdd_exchange_version_and_caps(hdd_context_t *pHddCtx);
 void hdd_set_pwrparams(hdd_context_t *pHddCtx);

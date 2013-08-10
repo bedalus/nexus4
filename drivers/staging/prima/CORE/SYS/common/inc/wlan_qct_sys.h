@@ -103,7 +103,6 @@ typedef enum
    SYS_MSG_ID_RX_TIMER,
 
    SYS_MSG_ID_MC_STOP,
-   SYS_MSG_ID_FTM_RSP,
 
 } SYS_MSG_ID;
 

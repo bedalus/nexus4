@@ -102,7 +102,7 @@
 #define QCOM_OUI2         0xA0
 #define QCOM_OUI3         0xC6
 #define QCOM_VENDOR_IE_AGE_TYPE  0x100
-#define QCOM_VENDOR_IE_AGE_LEN   11
+#define QCOM_VENDOR_IE_AGE_LEN   4
 
 #ifdef FEATURE_WLAN_TDLS
 #define WLAN_IS_TDLS_SETUP_ACTION(action) \
@@ -134,7 +134,7 @@ int wlan_hdd_cfg80211_pmksa_candidate_notify(
 void wlan_hdd_cfg80211_set_key_wapi(hdd_adapter_t* pAdapter,
               u8 key_index, const u8 *mac_addr, u8 *key , int key_Len);
 #endif
-struct wiphy *wlan_hdd_cfg80211_wiphy_alloc(int priv_size);
+struct wiphy *wlan_hdd_cfg80211_init(int priv_size);
 
 int wlan_hdd_cfg80211_scan( struct wiphy *wiphy,
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,6,0))
@@ -142,12 +142,11 @@ int wlan_hdd_cfg80211_scan( struct wiphy *wiphy,
 #endif
                             struct cfg80211_scan_request *request);
 
-int wlan_hdd_cfg80211_init(struct device *dev,
+int wlan_hdd_cfg80211_register(struct device *dev,
                                struct wiphy *wiphy,
                                hdd_config_t *pCfg
                                          );
 
-int wlan_hdd_cfg80211_register( struct wiphy *wiphy);
 void wlan_hdd_cfg80211_post_voss_start(hdd_adapter_t* pAdapter);
 
 void wlan_hdd_cfg80211_pre_voss_stop(hdd_adapter_t* pAdapter);
@@ -159,10 +158,6 @@ extern v_VOID_t hdd_connSetConnectionState( hdd_station_ctx_t *pHddStaCtx,
 #ifdef FEATURE_WLAN_TDLS
 int wlan_hdd_cfg80211_send_tdls_discover_req(struct wiphy *wiphy,
                             struct net_device *dev, u8 *peer);
-#endif
-#ifdef WLAN_FEATURE_GTK_OFFLOAD
-extern void wlan_hdd_cfg80211_update_replayCounterCallback(void *callbackContext,
-                            tpSirGtkOffloadGetInfoRspParams pGtkOffloadGetInfoRsp);
 #endif
 
 

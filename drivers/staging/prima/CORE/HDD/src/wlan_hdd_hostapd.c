@@ -1456,12 +1456,6 @@ static iw_softap_commit(struct net_device *dev,
                          pConfig->RSNEncryptType, pConfig->mcRSNEncryptType);
     }
 
-    if (pConfig->RSNWPAReqIELength > QCSAP_MAX_OPT_IE) {
-        hddLog(LOGE, FL("RSNWPAReqIELength: %d too large"), pConfig->RSNWPAReqIELength);
-        kfree(pConfig);
-        return -EIO;
-    }
-
     pConfig->SSIDinfo.ssidHidden = pCommitConfig->SSIDinfo.ssidHidden; 
     pConfig->SSIDinfo.ssid.length = pCommitConfig->SSIDinfo.ssid.length;
     vos_mem_copy(pConfig->SSIDinfo.ssid.ssId, pCommitConfig->SSIDinfo.ssid.ssId, pConfig->SSIDinfo.ssid.length);
@@ -2490,7 +2484,7 @@ static int iw_softap_get_sta_info(struct net_device *dev,
     hdd_adapter_t *pHostapdAdapter = (netdev_priv(dev));
     VOS_STATUS status;
     ENTER();
-    status = hdd_softap_get_sta_info(pHostapdAdapter, extra, WE_SAP_MAX_STA_INFO);
+    status = hdd_softap_get_sta_info(pHostapdAdapter, extra, wrqu->data.length);
     if ( !VOS_IS_STATUS_SUCCESS( status ) ) {
        hddLog(VOS_TRACE_LEVEL_ERROR, "%s Failed!!!\n",__func__);
        return -EINVAL;

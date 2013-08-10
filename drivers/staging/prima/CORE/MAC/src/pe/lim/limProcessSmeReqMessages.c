@@ -1382,29 +1382,6 @@ static void __limProcessSmeOemDataReq(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
 
 #endif //FEATURE_OEM_DATA_SUPPORT
 
-/**
- * __limProcessClearDfsChannelList()
- *
- *FUNCTION:
- *Clear DFS channel list  when country is changed/aquired.
-.*This message is sent from SME.
- *
- *LOGIC:
- *
- *ASSUMPTIONS:
- *
- *NOTE:
- *
- * @param  pMac      Pointer to Global MAC structure
- * @param  *pMsgBuf  A pointer to the SME message buffer
- * @return None
- */
-static void __limProcessClearDfsChannelList(tpAniSirGlobal pMac,
-                                                           tpSirMsgQ pMsg)
-{
-    palZeroMemory(pMac->hHdd, &pMac->lim.dfschannelList,
-                  sizeof(tSirDFSChannelList));
-}
 
 /**
  * __limProcessSmeJoinReq()
@@ -4613,7 +4590,6 @@ __limInsertSingleShotNOAForScan(tpAniSirGlobal pMac, tANI_U32 noaDuration)
 
         // send the scan response back with status failure and do not even call insert NOA
         limSendSmeScanRsp(pMac, sizeof(tSirSmeScanRsp), eSIR_SME_SCAN_FAILED, pMac->lim.gSmeSessionId, pMac->lim.gTransactionId);
-        palFreeMemory( pMac->hHdd, (void **) &pMsgNoA);
         goto error;
     }
 
@@ -5186,9 +5162,6 @@ limProcessSmeReqMessages(tpAniSirGlobal pMac, tpSirMsgQ pMsg)
 
         case eWNI_SME_UPDATE_NOA:
             __limProcessSmeNoAUpdate(pMac, pMsgBuf);
-            break;
-        case eWNI_SME_CLEAR_DFS_CHANNEL_LIST:
-            __limProcessClearDfsChannelList(pMac, pMsg);
             break;
         case eWNI_SME_JOIN_REQ:
             __limProcessSmeJoinReq(pMac, pMsgBuf);

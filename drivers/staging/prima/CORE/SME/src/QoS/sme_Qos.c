@@ -1619,7 +1619,6 @@ sme_QosStatusType sme_QosInternalSetupReq(tpAniSirGlobal pMac,
          else
          {
             tmask = new_tmask;
-            pACInfo->requested_QoSInfo[tmask-1] = Tspec_Info;
          }
       }
       else
@@ -3225,9 +3224,6 @@ eHalStatus sme_QosCreateTspecRICIE(tpAniSirGlobal pMac, sme_QosWmmTspecInfo *pTs
     VOS_ASSERT(NULL != pRICLength);
     VOS_ASSERT(NULL != pRICIdentifier);
 
-    if (pRICBuffer == NULL || pRICIdentifier == NULL || pRICLength == NULL)
-        return eHAL_STATUS_FAILURE;
-
     vos_mem_zero(&ricIE, sizeof(tDot11fIERICDataDesc));
 
     ricIE.present = 1;
@@ -3919,7 +3915,6 @@ eHalStatus sme_QosDelTsReq(tpAniSirGlobal pMac,
       VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR, 
                 "%s: %d: BSS descriptor is NULL so we don't send request to PE",
                 __func__, __LINE__);
-      vos_mem_free(pMsg);
       return eHAL_STATUS_FAILURE;
    }
    vos_mem_copy( &pMsg->bssId[ 0 ], 

@@ -210,7 +210,7 @@ void WDI_DS_MemPoolDestroy(WDI_DS_BdMemPoolType *memPool)
 /*
  * Allocate chunk memory
  */
-WPT_STATIC WPT_INLINE int find_leading_zero_and_setbit(wpt_uint32 *bitmap, wpt_uint32 maxNumPool)
+WPT_STATIC int find_leading_zero_and_setbit(wpt_uint32 *bitmap, wpt_uint32 maxNumPool)
 {
   wpt_uint32 i,j, word;
   int ret_val = -1;
