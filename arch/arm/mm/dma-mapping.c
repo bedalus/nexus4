@@ -833,7 +833,6 @@ static void dma_cache_maint_page(struct page *page, unsigned long offset,
 					offset %= PAGE_SIZE;
 				}
 				len = PAGE_SIZE - offset;
-			}
 			vaddr = kmap_high_get(page);
 			if (vaddr) {
 				vaddr += offset;
