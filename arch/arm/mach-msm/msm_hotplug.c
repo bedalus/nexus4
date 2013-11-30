@@ -231,7 +231,7 @@ static void msm_hotplug_fn(struct work_struct *work)
 	cur_load = st->current_load;
 	online_cpus = st->online_cpus;
 
-	if (online_cpus == st->min_cpus && lge_boosted) {
+	if ((online_cpus == st->min_cpus && lge_boosted) || (online_cpus < 2)) {
 		dprintk("%s: cur_load: %3u online_cpus: %u lge_boosted\n",
 			MSM_HOTPLUG, cur_load, online_cpus);
 		online_cpu(st->min_cpus + 1);
