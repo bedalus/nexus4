@@ -828,34 +828,36 @@ static void dma_cache_maint_page(struct page *page, unsigned long offset,
 	 * optimized out.
 	 */
 	do {
-		size_t len = left;
-		void *vaddr;
+                size_t len = left;
+                void *vaddr;
 
-		page = pfn_to_page(pfn);
-
-		if (PageHighMem(page)) {
-			if (len + offset > PAGE_SIZE)
-				len = PAGE_SIZE - offset;
-			}
-			vaddr = kmap_high_get(page);
-			if (vaddr) {
-				vaddr += offset;
-				op(vaddr, len, dir);
-				kunmap_high(page);
-			} else if (cache_is_vipt()) {
-				/* unmapped pages might still be cached */
-				vaddr = kmap_atomic(page);
-				op(vaddr + offset, len, dir);
-				kunmap_atomic(vaddr);
-			}
-		} else {
-			vaddr = page_address(page) + offset;
-			op(vaddr, len, dir);
-		}
-		offset = 0;
-		pfn++;
-		left -= len;
-	} while (left);
+                if (PageHighMem(page)) {
+                        if (len + offset > PAGE_SIZE) {
+                                if (offset >= PAGE_SIZE) {
+                                        page += offset / PAGE_SIZE;
+                                        offset %= PAGE_SIZE;
+                                }
+                                len = PAGE_SIZE - offset;
+                        }
+                        vaddr = kmap_high_get(page);
+                        if (vaddr) {
+                                vaddr += offset;
+                                op(vaddr, len, dir);
+                                kunmap_high(page);
+                        } else if (cache_is_vipt()) {
+                                /* unmapped pages might still be cached */
+                                vaddr = kmap_atomic(page);
+                                op(vaddr + offset, len, dir);
+                                kunmap_atomic(vaddr);
+                        }
+                } else {
+                        vaddr = page_address(page) + offset;
+                        op(vaddr, len, dir);
+                }
+                offset = 0;
+                page++;
+                left -= len;
+        } while (left);
 }
 
 /*
