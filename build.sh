@@ -11,5 +11,5 @@ cp -f arch/arm/boot/zImage ../zip/kernel/
 ls -l ../zip/kernel/zImage
 cd ../zip
 zip -r -9 kernel.zip * > /dev/null
-mv kernel.zip ../../Documents_OSX/
+mv kernel.zip ../
 
