@@ -67,6 +67,14 @@ static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq)
 		}
 	}
 
+	/* Insert some code to disable underutilised freq.s on mako */
+	/* @225.5 hours 810:7m 918:6m 1242:5m 1458:1m to nearest minute */
+	/* (most utilised freq.s 384:34.5h 1026:5h 702:3.5h */
+	/* just move up to the next more utilised freq. instead */
+
+	if ((new_freq >= 384000) && (new_freq <= 594000)) new_freq = 702000;
+	if (new_freq > 702000) new_freq = 1512000;
+
 	freqs.old = policy->cur;
 	freqs.new = new_freq;
 	freqs.cpu = policy->cpu;
