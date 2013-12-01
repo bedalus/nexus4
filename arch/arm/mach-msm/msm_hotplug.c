@@ -35,6 +35,7 @@
 #define DEFAULT_SUSPEND_FREQ	702000
 
 static unsigned int debug = 0;
+static bool EarlOfSuspenders = false;
 module_param_named(debug_mask, debug, uint, 0644);
 
 #define dprintk(msg...)		\
@@ -231,7 +232,7 @@ static void msm_hotplug_fn(struct work_struct *work)
 	cur_load = st->current_load;
 	online_cpus = st->online_cpus;
 
-	if (online_cpus == st->min_cpus && lge_boosted) {
+	if ((online_cpus == st->min_cpus && lge_boosted) || ((online_cpus < 2) && !EarlOfSuspenders)) {
 		dprintk("%s: cur_load: %3u online_cpus: %u lge_boosted\n",
 			MSM_HOTPLUG, cur_load, online_cpus);
 		online_cpu(st->min_cpus + 1);
@@ -274,6 +275,7 @@ static void msm_hotplug_early_suspend(struct early_suspend *handler)
 
 	atomic_set(&hp->down_lock, 0);
 	offline_cpu(st->min_cpus);
+	EarlOfSuspenders = true;
 
 	flush_workqueue(hotplug_wq);
 	cancel_delayed_work_sync(&hotplug_work);
@@ -295,6 +297,7 @@ static void msm_hotplug_late_resume(struct early_suspend *handler)
 		return;
 
 	online_cpu(st->total_cpus);
+	EarlOfSuspenders = false;
 
 	for_each_possible_cpu(cpu)
 	    msm_cpufreq_set_freq_limits(cpu, policy->min, policy->max);
