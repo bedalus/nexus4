@@ -429,10 +429,10 @@ static void msm_dcvs_report_temp_work(struct work_struct *work)
 		return;
 
 	tsens_dev.sensor_num = core->sensor;
-	ret = tsens_get_temp(&tsens_dev, &temp);
+	//ret = tsens_get_temp(&tsens_dev, &temp);
 	if (!temp) {
 		tsens_dev.sensor_num = 0;
-		ret = tsens_get_temp(&tsens_dev, &temp);
+		//ret = tsens_get_temp(&tsens_dev, &temp);
 		if (!temp)
 			goto out;
 	}

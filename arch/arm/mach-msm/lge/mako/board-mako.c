@@ -1356,13 +1356,13 @@ static struct mdm_platform_data mdm_platform_data = {
 	.mdm2ap_status_gpio_run_cfg = &mdm2ap_status_gpio_run_cfg,
 };
 
-static struct tsens_platform_data apq_tsens_pdata  = {
+/*static struct tsens_platform_data apq_tsens_pdata  = {
 		.tsens_factor		= 1000,
 		.hw_type		= APQ_8064,
 		.tsens_num_sensor	= 11,
 		.slope = {1176, 1176, 1154, 1176, 1111,
 			1132, 1132, 1199, 1132, 1199, 1132},
-};
+};*/
 
 static struct platform_device msm_tsens_device = {
 	.name   = "tsens8960-tm",
@@ -1976,7 +1976,7 @@ static void __init apq8064_common_init(void)
 	struct msm_rpmrs_level rpmrs_level;
 
 	platform_device_register(&msm_gpio_device);
-	msm_tsens_early_init(&apq_tsens_pdata);
+	//msm_tsens_early_init(&apq_tsens_pdata);
 	msm_thermal_init(&msm_thermal_pdata);
 	if (socinfo_init() < 0)
 		pr_err("socinfo_init() failed!\n");
