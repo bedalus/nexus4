@@ -190,7 +190,7 @@ static struct dbs_tuners {
 	.sync_freq = DBS_SYNC_FREQ,
 	.optimal_freq = DBS_OPTIMAL_FREQ,
 	.freq_boost_time = DEFAULT_FREQ_BOOST_TIME,
-	.two_phase_freq = 1350000,
+	.two_phase_freq = 1134000,
 };
 
 static inline cputime64_t get_cpu_idle_time_jiffy(unsigned int cpu,
@@ -1190,7 +1190,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 				(dbs_tuners_ins.up_threshold -
 				 dbs_tuners_ins.down_differential);
 
-		if ((dbs_tuners_ins.boosted || lge_boosted)
+		if ((dbs_tuners_ins.boosted || mako_boosted)
 				&& freq_next < dbs_tuners_ins.boostfreq) {
 			freq_next = dbs_tuners_ins.boostfreq;
 		}
@@ -1353,12 +1353,14 @@ static void do_dbs_timer(struct work_struct *work)
 			rq_persist_count--;
 
 #ifdef CONFIG_CPUFREQ_ID_PERFLOCK
-	if (num_online_cpus() >= 2) {
-		if (saved_policy_min != 0)
-			policy->min = saved_policy_min;
-	} else if (num_online_cpus() == 1) {
-		saved_policy_min = policy->min;
-		policy->min = DBS_PERFLOCK_MIN_FREQ;
+	if (cpu == 0) {
+		if (num_online_cpus() >= 2) {
+			if (saved_policy_min != 0)
+				policy->min = saved_policy_min;
+		} else if (num_online_cpus() == 1) {
+			saved_policy_min = policy->min;
+			policy->min = DBS_PERFLOCK_MIN_FREQ;
+		}
 	}
 #endif
 
