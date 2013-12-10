@@ -37,7 +37,6 @@
 #define DEFAULT_MIN_CPUS_ONLINE	1
 #define DEFAULT_MAX_CPUS_ONLINE	NR_CPUS
 
-static bool EarlOfSuspenders = false;
 static unsigned int debug = 0;
 module_param_named(debug_mask, debug, uint, 0644);
 
@@ -241,7 +240,7 @@ static void msm_hotplug_fn(struct work_struct *work)
 		goto reschedule;
 	}
 
-	if ((online_cpus < hp->cpus_boosted && mako_boosted) || ((online_cpus < 2) && !EarlOfSuspenders)) {
+	if (online_cpus < hp->cpus_boosted && mako_boosted) {
 		dprintk("%s: cur_load: %3u online_cpus: %u mako_boosted\n",
 			MSM_HOTPLUG, cur_load, online_cpus);
 		online_cpu(hp->cpus_boosted);
@@ -291,7 +290,6 @@ static void msm_hotplug_early_suspend(struct early_suspend *handler)
 
 	atomic_set(&hp->down_lock, 0);
 	offline_cpu(st->min_cpus);
-	EarlOfSuspenders = true;
 
 	msm_cpufreq_set_freq_limits(0, MSM_CPUFREQ_NO_LIMIT, hp->suspend_freq);
 	pr_info("%s: Early suspend - max freq: %dMHz\n", MSM_HOTPLUG,
@@ -309,7 +307,6 @@ static void msm_hotplug_late_resume(struct early_suspend *handler)
 		return;
 
 	online_cpu(st->total_cpus);
-	EarlOfSuspenders = false;
 
 	for_each_possible_cpu(cpu)
 	    msm_cpufreq_set_freq_limits(cpu, MSM_CPUFREQ_NO_LIMIT,
