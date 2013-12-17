@@ -22,18 +22,17 @@
 #include <linux/ktime.h>
 #include <linux/sched.h>
 
-#define DEFAULT_FREQ_BOOST_TIME			(1000000)
 #define TRANSITION_LATENCY_LIMIT		(10 * 1000 * 1000)
 #define SAMPLE_RATE				(40000)
+#define OPTIMAL_POSITION			(6)
 
-static u64 freq_boosted_time;
+static const int valid_fqs[12] = {384000, 486000, 594000, 702000, 810000,
+			918000, 1026000, 1134000, 1242000, 1350000,
+			1458000, 1512000};
 static unsigned int min_sampling_rate;
 static void do_dbs_timer(struct work_struct *work);
 static unsigned int dbs_enable;
 static int freq_table_position;
-static const int valid_fqs[12] = {384000, 486000, 594000, 702000, 810000,
-			918000, 1026000, 1134000, 1242000, 1350000,
-			1458000, 1512000};
 
 struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_idle;
@@ -53,14 +52,8 @@ static DEFINE_MUTEX(dbs_mutex);
 
 static struct dbs_tuners {
 	unsigned int sampling_rate;
-	unsigned int ignore_nice;
-	unsigned int boosted;
-	unsigned int freq_boost_time;
-	unsigned int boostfreq;
 } dbs_tuners_ins = {
-	.ignore_nice = 1,
-	.freq_boost_time = DEFAULT_FREQ_BOOST_TIME,
-	.boostfreq = 1134000,
+	.sampling_rate = SAMPLE_RATE
 };
 
 static inline u64 get_cpu_idle_time_jiffy(unsigned int cpu, u64 *wall)
@@ -143,19 +136,11 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	/* don't down skip */
 	this_dbs_info->down_skip = 0;
 
-	/* Only core0 controls the boost */
-	if (dbs_tuners_ins.boosted && policy->cpu == 0) {
-		if (ktime_to_us(ktime_get()) - freq_boosted_time >=
-					dbs_tuners_ins.freq_boost_time)
-			dbs_tuners_ins.boosted = 0;
-	}
-
-	/* check for frequency boost */
-	if ((dbs_tuners_ins.boosted || mako_boosted)
-	    && policy->cur < dbs_tuners_ins.boostfreq) {
-		__cpufreq_driver_target(policy, dbs_tuners_ins.boostfreq,
+	/* check for touch boost */
+	if (mako_boosted && (policy->cur < valid_fqs[OPTIMAL_POSITION])) {
+		__cpufreq_driver_target(policy, valid_fqs[OPTIMAL_POSITION],
 			CPUFREQ_RELATION_H);
-		freq_table_position = 7;
+		freq_table_position = OPTIMAL_POSITION;
 		return;
 	}
 
@@ -177,20 +162,6 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 			(cur_idle_time - j_dbs_info->prev_cpu_idle);
 		j_dbs_info->prev_cpu_idle = cur_idle_time;
 
-		if (dbs_tuners_ins.ignore_nice) {
-			u64 cur_nice;
-			unsigned long cur_nice_jiffies;
-
-			cur_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE] -
-					 j_dbs_info->prev_cpu_nice;
-
-			cur_nice_jiffies = (unsigned long)
-					cputime64_to_jiffies64(cur_nice);
-
-			j_dbs_info->prev_cpu_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
-			idle_time += jiffies_to_usecs(cur_nice_jiffies);
-		}
-
 		if (unlikely(!wall_time || wall_time < idle_time))
 			continue;
 
@@ -201,17 +172,18 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	}
 
 	/*
-	 * The optimal frequency is the jammiest. Mmm.
-	 * OR could even be position 7 in the table, i.e. 1134000 MHz
-	 * (this fq gets a bus speed hike).
+	 * The optimal frequency is the jammiest. Mmm. 
+	 * Use the define at the top to set OPTIMAL_POSITION
+	 * as the position of the desired fq. in the table
+	 * E.g. position 7 in the table represents 1134000 MHz
 	 * Go straight to this if below and rising...
 	 * Go straight to this if above and falling, like smartass by erasmux
 	 */
-	if (max_load > (60 + freq_table_position)) {
-		if (++freq_table_position < 7) freq_table_position = 7;
+	if (max_load > (55 + freq_table_position)) {
+		if (++freq_table_position < OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
 	if (max_load < (20 + freq_table_position)) {
-		if (--freq_table_position > 7) freq_table_position = 7;
+		if (--freq_table_position > OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
 	if (freq_table_position > 11) freq_table_position = 11;
 	if (freq_table_position < 0) freq_table_position = 0;
@@ -286,9 +258,6 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 
 			j_dbs_info->prev_cpu_idle = get_cpu_idle_time(j,
 						&j_dbs_info->prev_cpu_wall);
-			if (dbs_tuners_ins.ignore_nice)
-				j_dbs_info->prev_cpu_nice =
-						kcpustat_cpu(j).cpustat[CPUTIME_NICE];
 		}
 		this_dbs_info->down_skip = 0;
 		this_dbs_info->requested_freq = policy->cur;
@@ -303,7 +272,6 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 				latency = 1;
 
 			min_sampling_rate = SAMPLE_RATE;
-			dbs_tuners_ins.sampling_rate = SAMPLE_RATE;
 
 			cpufreq_register_notifier(
 					&dbs_cpufreq_notifier_block,
