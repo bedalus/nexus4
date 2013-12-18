@@ -35,7 +35,7 @@
 #define DEFAULT_SUSPEND_FREQ	1134000
 #define DEFAULT_NR_CPUS_BOOSTED	2
 #define DEFAULT_MIN_CPUS_ONLINE	2
-#define DEFAULT_MAX_CPUS_ONLINE	3
+#define DEFAULT_MAX_CPUS_ONLINE	NR_CPUS
 
 static unsigned int debug = 0;
 module_param_named(debug_mask, debug, uint, 0644);
