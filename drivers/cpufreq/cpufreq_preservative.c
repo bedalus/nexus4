@@ -24,9 +24,10 @@
 
 #define TRANSITION_LATENCY_LIMIT		(10 * 1000 * 1000)
 #define SAMPLE_RATE				(40000)
-#define OPTIMAL_POSITION			(6)
+#define OPTIMAL_POSITION			(3)
+#define TABLE_SIZE				(11)
 
-static const int valid_fqs[12] = {384000, 486000, 594000, 702000, 810000,
+static const int valid_fqs[TABLE_SIZE] = {384000, 594000, 702000, 810000,
 			918000, 1026000, 1134000, 1242000, 1350000,
 			1458000, 1512000};
 static unsigned int min_sampling_rate;
@@ -137,11 +138,11 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	this_dbs_info->down_skip = 0;
 
 	/* check for touch boost */
-	if (mako_boosted && (policy->cur < valid_fqs[OPTIMAL_POSITION])) {
-		__cpufreq_driver_target(policy, valid_fqs[OPTIMAL_POSITION],
+	if (mako_boosted && (policy->cur < valid_fqs[7])) {
+		__cpufreq_driver_target(policy, valid_fqs[7],
 			CPUFREQ_RELATION_H);
-		freq_table_position = OPTIMAL_POSITION;
-		return;
+		freq_table_position = 7; // keep this at 1242MHz
+		return;			 // rather than at OPTIMAL_POSITION
 	}
 
 	/* Get Absolute Load */
@@ -175,7 +176,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	 * The optimal frequency is the jammiest. Mmm. 
 	 * Use the define at the top to set OPTIMAL_POSITION
 	 * as the position of the desired fq. in the table
-	 * E.g. position 7 in the table represents 1134000 MHz
+	 * E.g. position 7 in the table represents 1242000 MHz
 	 * Go straight to this if below and rising...
 	 * Go straight to this if above and falling, like smartass by erasmux
 	 */
@@ -185,7 +186,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	if (max_load < (20 + freq_table_position)) {
 		if (--freq_table_position > OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
-	if (freq_table_position > 11) freq_table_position = 11;
+	if (freq_table_position > (TABLE_SIZE-1)) freq_table_position = (TABLE_SIZE-1);
 	if (freq_table_position < 0) freq_table_position = 0;
 
 	freq_target = valid_fqs[freq_table_position];
