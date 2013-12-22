@@ -22,6 +22,8 @@
 #include <linux/ktime.h>
 #include <linux/sched.h>
 
+#include "../gpu/msm/kgsl.h"
+
 #define TRANSITION_LATENCY_LIMIT		(10 * 1000 * 1000)
 #define SAMPLE_RATE				(40000)
 #define OPTIMAL_POSITION			(3)
@@ -33,7 +35,7 @@ static const int valid_fqs[TABLE_SIZE] = {384000, 594000, 702000, 810000,
 static unsigned int min_sampling_rate;
 static void do_dbs_timer(struct work_struct *work);
 static unsigned int dbs_enable;
-static int freq_table_position;
+extern int freq_table_position;
 
 struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_idle;

@@ -26,6 +26,8 @@
 #define TZ_GOVERNOR_PERFORMANCE 0
 #define TZ_GOVERNOR_ONDEMAND    1
 
+int freq_table_position;
+
 struct tz_priv {
 	int governor;
 	unsigned int no_switch_cnt;
@@ -146,6 +148,12 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 	if ((stats.total_time == 0) ||
 		(priv->bin.total_time < FLOOR))
 		return;
+
+	/* Let's go to max if there is any CPU load */
+	if (freq_table_position > 0) {
+		kgsl_pwrctrl_pwrlevel_change(device, pwr->max_pwrlevel);
+		return;
+	}
 
 	/* If the GPU has stayed in turbo mode for a while, *
 	 * stop writing out values. */
