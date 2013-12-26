@@ -131,7 +131,7 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	struct tz_priv *priv = pwrscale->priv;
 	struct kgsl_power_stats stats;
-	int val, idle;
+	int val, idle, boost;
 
 	/* In "performance" mode the clock speed always stays
 	   the same */
@@ -149,10 +149,10 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 		(priv->bin.total_time < FLOOR))
 		return;
 
-	/* Let's go to max if there is any CPU load */
-	if (freq_table_position > 0) {
-		kgsl_pwrctrl_pwrlevel_change(device, pwr->max_pwrlevel);
-		return;
+	boost = 0;
+	/* Let's boost if there is any CPU load */
+	if (freq_table_position > 1) {
+		boost = 2;
 	}
 
 	/* If the GPU has stayed in turbo mode for a while, *
@@ -178,7 +178,7 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 	val = __secure_tz_entry(TZ_UPDATE_ID, idle, device->id);
 	if (val)
 		kgsl_pwrctrl_pwrlevel_change(device,
-					     pwr->active_pwrlevel + val);
+					     pwr->active_pwrlevel + val + boost);
 }
 
 static void tz_busy(struct kgsl_device *device,
@@ -191,14 +191,13 @@ static void tz_sleep(struct kgsl_device *device,
 	struct kgsl_pwrscale *pwrscale)
 {
 	struct tz_priv *priv = pwrscale->priv;
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 
      /*
-      * Why in the hell were we calling a secure_tz func sleeping the device
-      * at 320MHz on the GPU? Makes no sense to me. Lets change the pwrlevel
-      * directly and sleep at its lowest frequency 128MHz.
+      * Sleep at max power level even though it doesn't make sense to Franco! <3
       */
 
-	kgsl_pwrctrl_pwrlevel_change(device, 3);
+	kgsl_pwrctrl_pwrlevel_change(device, pwr->max_pwrlevel);
 	priv->no_switch_cnt = 0;
 	priv->bin.total_time = 0;
 	priv->bin.busy_time = 0;
