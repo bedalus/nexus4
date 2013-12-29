@@ -207,6 +207,7 @@ struct zs_pool {
 	struct size_class size_class[ZS_SIZE_CLASSES];
 
 	gfp_t flags;	/* allocation flags used when growing pool */
+	const char *name;
 };
 
 /*
@@ -225,7 +226,7 @@ struct zs_pool {
  * so that USE_PGTABLE_MAPPING is defined. This causes zsmalloc to use
  * page table mapping rather than copying for object mapping.
 */
-#if defined(CONFIG_ARM) && !defined(MODULE)
+#if defined(CONFIG_ARM)
 #define USE_PGTABLE_MAPPING
 #endif
 
@@ -792,20 +793,13 @@ fail:
 	return notifier_to_errno(ret);
 }
 
-/**
- * zs_create_pool - Creates an allocation pool to work from.
- * @flags: allocation flags used to allocate pool metadata
- *
- * This function must be called before anything when using
- * the zsmalloc allocator.
- *
- * On success, a pointer to the newly created pool is returned,
- * otherwise NULL.
- */
-struct zs_pool *zs_create_pool(gfp_t flags)
+struct zs_pool *zs_create_pool(const char *name, gfp_t flags)
 {
 	int i, ovhd_size;
 	struct zs_pool *pool;
+
+	if (!name)
+		return NULL;
 
 	ovhd_size = roundup(sizeof(*pool), PAGE_SIZE);
 	pool = kzalloc(ovhd_size, GFP_KERNEL);
@@ -829,6 +823,7 @@ struct zs_pool *zs_create_pool(gfp_t flags)
 	}
 
 	pool->flags = flags;
+	pool->name = name;
 
 	return pool;
 }
