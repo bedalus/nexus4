@@ -25,7 +25,7 @@
 #include "../gpu/msm/kgsl.h"
 
 #define TRANSITION_LATENCY_LIMIT		(10 * 1000 * 1000)
-#define SAMPLE_RATE				(40000)
+#define SAMPLE_RATE				(8000)
 #define OPTIMAL_POSITION			(3)
 #define TABLE_SIZE				(11)
 
@@ -36,6 +36,7 @@ static unsigned int min_sampling_rate;
 static void do_dbs_timer(struct work_struct *work);
 static unsigned int dbs_enable;
 extern int freq_table_position;
+bool go_max;
 
 struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_idle;
@@ -185,9 +186,10 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	if (max_load > (55 + freq_table_position)) {
 		if (++freq_table_position < OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
-	if (max_load < (20 + freq_table_position)) {
+	if (max_load < (15 + freq_table_position)) {
 		if (--freq_table_position > OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
+	if (go_max) freq_table_position = (TABLE_SIZE-1);
 	if (freq_table_position > (TABLE_SIZE-1)) freq_table_position = (TABLE_SIZE-1);
 	if (freq_table_position < 0) freq_table_position = 0;
 
