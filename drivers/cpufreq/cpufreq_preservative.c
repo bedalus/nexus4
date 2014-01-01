@@ -31,7 +31,7 @@
 
 static const int valid_fqs[TABLE_SIZE] = {384000, 594000, 702000, 810000,
 			918000, 1026000, 1134000, 1242000, 1350000,
-			1458000, 1512000};
+			1458000, 1728000};
 static unsigned int min_sampling_rate;
 static void do_dbs_timer(struct work_struct *work);
 static unsigned int dbs_enable;
@@ -44,7 +44,6 @@ struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_nice;
 	struct cpufreq_policy *cur_policy;
 	struct delayed_work work;
-	unsigned int down_skip;
 	unsigned int requested_freq;
 	int cpu;
 	unsigned int enable:1;
@@ -137,16 +136,13 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 
 	policy = this_dbs_info->cur_policy;
 
-	/* don't down skip */
-	this_dbs_info->down_skip = 0;
-
-	/* check for touch boost */
-	if (mako_boosted && (policy->cur < valid_fqs[7])) {
-		__cpufreq_driver_target(policy, valid_fqs[7],
+	/* check for touch boost or go_max (i.e. GPU heavy load)*/
+	if ((go_max || mako_boosted) && (policy->cur < valid_fqs[7 - (int)go_max])) {
+		__cpufreq_driver_target(policy, valid_fqs[7 - (int)go_max],
 			CPUFREQ_RELATION_H);
-		freq_table_position = 7; // keep this at 1242MHz
+		freq_table_position = 7 - (int)go_max; // keep this at 1242MHz
 		return;			 // rather than at OPTIMAL_POSITION
-	}
+	}				 // (helps with UI, loading apps, etc.)
 
 	/* Get Absolute Load */
 	for_each_cpu(j, policy->cpus) {
@@ -183,13 +179,12 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	 * Go straight to this if below and rising...
 	 * Go straight to this if above and falling, like smartass by erasmux
 	 */
-	if (max_load > (55 + freq_table_position)) {
+	if (max_load > (60 + ((freq_table_position/2)^2))) {
 		if (++freq_table_position < OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
 	if (max_load < (15 + freq_table_position)) {
 		if (--freq_table_position > OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
-	if (go_max) freq_table_position = (TABLE_SIZE-1);
 	if (freq_table_position > (TABLE_SIZE-1)) freq_table_position = (TABLE_SIZE-1);
 	if (freq_table_position < 0) freq_table_position = 0;
 
@@ -264,7 +259,6 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			j_dbs_info->prev_cpu_idle = get_cpu_idle_time(j,
 						&j_dbs_info->prev_cpu_wall);
 		}
-		this_dbs_info->down_skip = 0;
 		this_dbs_info->requested_freq = policy->cur;
 
 		mutex_init(&this_dbs_info->timer_mutex);
