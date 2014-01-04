@@ -25,7 +25,7 @@
 #include "../gpu/msm/kgsl.h"
 
 #define TRANSITION_LATENCY_LIMIT		(10 * 1000 * 1000)
-#define SAMPLE_RATE				(8000)
+#define SAMPLE_RATE				(5000)
 #define OPTIMAL_POSITION			(3)
 #define TABLE_SIZE				(11)
 
@@ -40,6 +40,7 @@ bool go_max;
 
 struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_idle;
+	cputime64_t prev_cpu_iowait;
 	cputime64_t prev_cpu_wall;
 	cputime64_t prev_cpu_nice;
 	struct cpufreq_policy *cur_policy;
@@ -91,6 +92,16 @@ static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
 		idle_time += get_cpu_iowait_time_us(cpu, wall);
 
 	return idle_time;
+}
+
+static inline cputime64_t get_cpu_iowait_time(unsigned int cpu, cputime64_t *wall)
+{
+	u64 iowait_time = get_cpu_iowait_time_us(cpu, wall);
+
+	if (iowait_time == -1ULL)
+		return 0;
+
+	return iowait_time;
 }
 
 /* keep track of frequency transitions */
@@ -147,12 +158,13 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	/* Get Absolute Load */
 	for_each_cpu(j, policy->cpus) {
 		struct cpu_dbs_info_s *j_dbs_info;
-		cputime64_t cur_wall_time, cur_idle_time;
-		unsigned int idle_time, wall_time;
+		cputime64_t cur_wall_time, cur_idle_time, cur_iowait_time;
+		unsigned int idle_time, wall_time, iowait_time;
 
 		j_dbs_info = &per_cpu(cs_cpu_dbs_info, j);
 
 		cur_idle_time = get_cpu_idle_time(j, &cur_wall_time);
+		cur_iowait_time = get_cpu_iowait_time(j, &cur_wall_time);
 
 		wall_time = (unsigned int)
 			(cur_wall_time - j_dbs_info->prev_cpu_wall);
@@ -161,6 +173,18 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		idle_time = (unsigned int)
 			(cur_idle_time - j_dbs_info->prev_cpu_idle);
 		j_dbs_info->prev_cpu_idle = cur_idle_time;
+
+		iowait_time = (unsigned int)
+			(cur_iowait_time - j_dbs_info->prev_cpu_iowait);
+		j_dbs_info->prev_cpu_iowait = cur_iowait_time;
+
+		/*
+		 * For the purpose of jamminess, waiting for disk IO is an
+		 * indication that you're a strawberry.
+		 */
+
+		if (idle_time >= iowait_time)
+			idle_time -= iowait_time;
 
 		if (unlikely(!wall_time || wall_time < idle_time))
 			continue;
@@ -175,14 +199,14 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	 * The optimal frequency is the jammiest. Mmm. 
 	 * Use the define at the top to set OPTIMAL_POSITION
 	 * as the position of the desired fq. in the table
-	 * E.g. position 7 in the table represents 1242000 MHz
+	 * E.g. position 7 in the table represents 1242 MHz
 	 * Go straight to this if below and rising...
 	 * Go straight to this if above and falling, like smartass by erasmux
 	 */
 	if (max_load > (60 + ((freq_table_position/2)^2))) {
 		if (++freq_table_position < OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
-	if (max_load < (15 + freq_table_position)) {
+	if (max_load < (10 + freq_table_position)) {
 		if (--freq_table_position > OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
 	if (freq_table_position > (TABLE_SIZE-1)) freq_table_position = (TABLE_SIZE-1);
