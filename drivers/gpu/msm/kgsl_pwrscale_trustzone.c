@@ -153,7 +153,7 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 
 	boost = false;
 	/* Let's boost if there is any non-trivial CPU load */
-	if (freq_table_position > 1) {
+	if (freq_table_position > 4) {
 		boost = true;
 	}
 
