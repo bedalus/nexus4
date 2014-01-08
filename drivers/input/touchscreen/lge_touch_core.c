@@ -765,6 +765,106 @@ static void dump_pointer_trace(void)
 }
 #endif
 
+#ifdef CONFIG_DOUBLETAP_WAKE
+
+/* Checks if there is a touch in the center of the screen */
+static inline int touch_within_limits(struct lge_touch_data *ts, int id)
+{
+	unsigned int dx, dy;
+
+	dx = ts->pdata->caps->lcd_x * DTW_TOUCH_AREA / 100;
+	dy = ts->pdata->caps->lcd_y * DTW_TOUCH_AREA / 100;
+
+	return (ts->ts_data.curr_data[id].x_position > ts->pdata->caps->lcd_x - dx &&
+		ts->ts_data.curr_data[id].x_position < ts->pdata->caps->lcd_x + dx &&
+		ts->ts_data.curr_data[id].y_position > ts->pdata->caps->lcd_y - dy &&
+		ts->ts_data.curr_data[id].y_position < ts->pdata->caps->lcd_y + dy);
+}
+
+static inline void touch_check_dt_wake(struct lge_touch_data *ts, int id)
+{
+	unsigned long diff_time;
+
+	diff_time = jiffies_to_msecs(jiffies - ts->dt_wake.time);
+
+	TOUCH_DEBUG_MSG("diff_time: %lu, hits: %u, x: %u, y: %u, id: %u\n",
+			diff_time, ts->dt_wake.hits,
+			ts->ts_data.curr_data[id].x_position,
+			ts->ts_data.curr_data[id].y_position, id);
+	/* Out of boundary. Reset hits and return */
+	if (!touch_within_limits(ts, id)) {
+		TOUCH_DEBUG_MSG("Out of boundary\n");
+		goto reset;
+	}
+
+	/* Timeout. Reset hits and return */
+	if (ts->dt_wake.touch && diff_time > ts->dt_wake.max_interval) {
+		TOUCH_DEBUG_MSG("Timeout\n");
+		goto reset;
+	}
+
+	/* Touch detected. Set time */
+	if (ts->ts_data.curr_data[id].state != ABS_RELEASE) {
+		if (ts->dt_wake.touch) {
+			TOUCH_DEBUG_MSG("Touch already detected\n");
+		} else {
+			TOUCH_DEBUG_MSG("Touch detected\n");
+			ts->dt_wake.time = jiffies;
+			ts->dt_wake.touch = 1;
+		}
+	} else {
+		/* Touch released. Increase hits */
+		TOUCH_DEBUG_MSG("Touch released. Increase hits\n");
+		ts->dt_wake.hits++;
+
+		ts->ts_data.curr_data[id].state = 0;
+	}
+
+	if (ts->dt_wake.hits < 2)
+		return;
+	
+	/* Double tap detected try to resume */
+	TOUCH_INFO_MSG("Double tap detected try to resume\n");
+
+	if (mutex_trylock(&ts->dt_wake.lock)) {
+		input_report_key(ts->input_dev, KEY_POWER, 1);
+		input_sync(ts->input_dev);
+		msleep(ts->pdata->role->booting_delay);
+		input_report_key(ts->input_dev, KEY_POWER, 0);
+		input_sync(ts->input_dev);
+		mutex_unlock(&ts->dt_wake.lock);
+		wake_unlock(&ts->dt_wake.wlock);
+	}
+
+reset:
+	if (ts->ts_data.curr_data[id].state == ABS_RELEASE)
+		ts->ts_data.curr_data[id].state = 0;
+	ts->dt_wake.hits = 0;
+	ts->dt_wake.touch = 0;
+}
+
+static void touch_input_dt_wake(struct lge_touch_data *ts)
+{
+	int id;
+
+	for (id = 0; id < ts->pdata->caps->max_id; id++) {
+		if (!ts->ts_data.curr_data[id].state)
+			continue;
+
+		if (!id) {
+			wake_lock_timeout(&ts->dt_wake.wlock,
+						ts->dt_wake.lock_timeout);
+			touch_check_dt_wake(ts, id);
+		} else {
+			TOUCH_DEBUG_MSG("No id 0\n");
+			ts->ts_data.curr_data[id].state = 0;
+			ts->dt_wake.hits = 0;
+			ts->dt_wake.touch = 0;
+		}
+	}
+}
+#endif
+
 static void touch_input_report(struct lge_touch_data *ts)
 {
 	int	id;
@@ -880,6 +980,11 @@ static void touch_work_func(struct work_struct *work)
 			goto out;
 	}
 
+#ifdef CONFIG_DOUBLETAP_WAKE
+	if (ts->curr_resume_state == 0 && ts->dt_wake.enabled)
+		touch_input_dt_wake(ts);
+	else
+#endif
 	touch_input_report(ts);
 
 out:
@@ -1642,6 +1747,44 @@ static ssize_t show_charger(struct lge_touch_data *ts, char *buf)
 	return sprintf(buf, "%d\n", ts->charger_type);
 }
 
+#ifdef CONFIG_DOUBLETAP_WAKE
+/* show_dt_wake_enabled
+ *
+ * Show if doubletap to wake functionality is enabled/disabled.
+ */
+static ssize_t show_dt_wake_enabled(struct lge_touch_data *ts, char *buf)
+{
+	int ret = 0;
+
+	ret = sprintf(buf, "%u\n", ts->dt_wake.enabled);
+
+	return ret;
+}
+
+/* store_dt_wake_enabled
+ *
+ * Enabled/Disable doubletap to wake functionality.
+ */
+static ssize_t store_dt_wake_enabled(struct lge_touch_data *ts, const char *buf,
+								size_t count)
+{
+	unsigned int value;
+	int ret;
+
+	ret = sscanf(buf, "%u", &value);
+	if (value < 0 || value > 1)
+		return -EINVAL;
+
+	if (ts->curr_resume_state == 0) {
+		ts->dt_wake.pending_status = value;
+		ts->dt_wake.pending = 1;
+	} else
+		ts->dt_wake.enabled = value;
+
+	return count;
+}
+#endif
+
 static ssize_t show_boosted_time(struct lge_touch_data *ts, char *buf)
 {
 	return sprintf(buf, "%d\n", boosted_time);
@@ -1785,7 +1928,12 @@ static LGE_TOUCH_ATTR(show_touches, S_IRUGO | S_IWUSR, show_show_touches, store_
 static LGE_TOUCH_ATTR(pointer_location, S_IRUGO | S_IWUSR, show_pointer_location,
 					store_pointer_location);
 static LGE_TOUCH_ATTR(charger, S_IRUGO | S_IWUSR, show_charger, NULL);
+#ifdef CONFIG_DOUBLETAP_WAKE
+static LGE_TOUCH_ATTR(dt_wake_enabled, S_IRUGO | S_IWUSR, show_dt_wake_enabled,
+					store_dt_wake_enabled);
+#endif
 static LGE_TOUCH_ATTR(boost_time, S_IRUGO | S_IWUSR, show_boosted_time, store_boosted_time);
+
 static LGE_TOUCH_ATTR(ignore_pressure_gap, S_IRUGO | S_IWUSR, show_ignore_pressure_gap, store_ignore_pressure_gap);
 static LGE_TOUCH_ATTR(touch_max_count, S_IRUGO | S_IWUSR, show_touch_max_count, store_touch_max_count);
 static LGE_TOUCH_ATTR(delta_max, S_IRUGO | S_IWUSR, show_delta_max, store_delta_max);
@@ -1804,6 +1952,9 @@ static struct attribute *lge_touch_attribute_list[] = {
 	&lge_touch_attr_show_touches.attr,
 	&lge_touch_attr_pointer_location.attr,
 	&lge_touch_attr_charger.attr,
+#ifdef CONFIG_DOUBLETAP_WAKE
+	&lge_touch_attr_dt_wake_enabled.attr,
+#endif
 	&lge_touch_attr_boost_time.attr,
 	&lge_touch_attr_ignore_pressure_gap.attr,
 	&lge_touch_attr_touch_max_count.attr,
@@ -2141,6 +2292,20 @@ static int touch_probe(struct i2c_client *client,
 	register_early_suspend(&ts->early_suspend);
 #endif
 
+#ifdef CONFIG_DOUBLETAP_WAKE
+	mutex_init(&ts->dt_wake.lock);
+	ts->dt_wake.enabled = 0;
+	ts->dt_wake.pending_status = 0;
+	ts->dt_wake.hits = 0;
+	ts->dt_wake.time = 0;
+	ts->dt_wake.touch = 0;
+	ts->dt_wake.max_interval = DTW_MAX_INTERVAL;
+	ts->dt_wake.lock_timeout = msecs_to_jiffies(DTW_LOCK_TIMEOUT);
+	wake_lock_init(&ts->dt_wake.wlock, WAKE_LOCK_SUSPEND, "dt_wake");
+
+	input_set_capability(ts->input_dev, EV_KEY, KEY_POWER);
+#endif
+
 	/* Register sysfs for making fixed communication path to framework layer */
 	ret = sysdev_class_register(&lge_touch_sys_class);
 	if (ret < 0) {
@@ -2181,6 +2346,9 @@ err_lge_touch_sys_class_register:
 		gpio_free(ts->pdata->int_pin);
 		free_irq(ts->client->irq, ts);
 	}
+#ifdef CONFIG_DOUBLETAP_WAKE
+	wake_lock_destroy(&ts->dt_wake.wlock);
+#endif
 err_interrupt_failed:
 	input_unregister_device(ts->input_dev);
 err_input_register_device_failed:
@@ -2209,6 +2377,9 @@ static int touch_remove(struct i2c_client *client)
 
 	device_init_wakeup(&client->dev, 0);
 
+#ifdef CONFIG_DOUBLETAP_WAKE
+	wake_lock_destroy(&ts->dt_wake.wlock);
+#endif
 	/* Specific device remove */
 	if (touch_device_func->remove)
 		touch_device_func->remove(ts->client);
@@ -2249,6 +2420,21 @@ static void touch_power_on(struct lge_touch_data *ts)
 		return;
 	}
 
+#ifdef CONFIG_DOUBLETAP_WAKE
+	if (ts->dt_wake.enabled) {
+		wake_unlock(&ts->dt_wake.wlock);
+		disable_irq_wake(ts->client->irq);
+
+		/* Reset touchscreen */
+		if (ts->pdata->role->operation_mode == INTERRUPT_MODE)
+			disable_irq(ts->client->irq);
+		else
+			hrtimer_cancel(&ts->timer);
+		release_all_ts_event(ts);
+
+		touch_power_cntl(ts, ts->pdata->role->suspend_pwr);
+	}
+#endif
 	touch_power_cntl(ts, ts->pdata->role->resume_pwr);
 
 	if (ts->pdata->role->operation_mode == INTERRUPT_MODE)
@@ -2263,6 +2449,14 @@ static void touch_power_on(struct lge_touch_data *ts)
 			msecs_to_jiffies(ts->pdata->role->booting_delay));
 	else
 		queue_delayed_work(touch_wq, &ts->work_init, 0);
+
+
+#ifdef CONFIG_DOUBLETAP_WAKE
+	if (ts->dt_wake.pending) {
+		ts->dt_wake.enabled = ts->dt_wake.pending_status;
+		ts->dt_wake.pending = 0;
+	}
+#endif
 }
 
 static void touch_power_off(struct lge_touch_data *ts)
@@ -2276,6 +2470,16 @@ static void touch_power_off(struct lge_touch_data *ts)
 		TOUCH_INFO_MSG("early_suspend is not executed\n");
 		return;
 	}
+#ifdef CONFIG_DOUBLETAP_WAKE
+	if (ts->dt_wake.enabled) {
+		cancel_work_sync(&ts->work);
+		cancel_delayed_work_sync(&ts->work_init);
+		release_all_ts_event(ts);
+		ts->dt_wake.hits = 0;
+		ts->dt_wake.touch = 0;
+		enable_irq_wake(ts->client->irq);
+	} else {
+#endif
 	if (ts->pdata->role->operation_mode == INTERRUPT_MODE)
 		disable_irq(ts->client->irq);
 	else
@@ -2289,6 +2493,9 @@ static void touch_power_off(struct lge_touch_data *ts)
 	release_all_ts_event(ts);
 
 	touch_power_cntl(ts, ts->pdata->role->suspend_pwr);
+#ifdef CONFIG_DOUBLETAP_WAKE
+	}
+#endif
 }
 
 #if defined(CONFIG_HAS_EARLYSUSPEND)
