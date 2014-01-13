@@ -26,11 +26,11 @@
 
 #define TRANSITION_LATENCY_LIMIT	(10 * 1000 * 1000)
 #define SAMPLE_RATE			(40000)
-#define OPTIMAL_POSITION		(1)
-#define TABLE_SIZE			(7)
+#define OPTIMAL_POSITION		(2)
+#define TABLE_SIZE			(9)
 #define HYSTERESIS			(6)
 
-static const int valid_fqs[TABLE_SIZE] = {384000, 918000,
+static const int valid_fqs[TABLE_SIZE] = {384000, 702000, 810000, 918000,
 			1134000, 1242000, 1350000,
 			1458000, 1728000};
 static unsigned int min_sampling_rate;
@@ -138,12 +138,12 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	policy = this_dbs_info->cur_policy;
 
 	/* check for touch boost or go_max (i.e. GPU heavy load)*/
-	if ((go_max || mako_boosted) && (policy->cur < valid_fqs[2])) {
-		__cpufreq_driver_target(policy, valid_fqs[2],
+	if ((go_max || mako_boosted) && (policy->cur < valid_fqs[OPTIMAL_POSITION])) {
+		__cpufreq_driver_target(policy, valid_fqs[OPTIMAL_POSITION],
 			CPUFREQ_RELATION_H);
-		freq_table_position = 2; // keep this at 1242MHz
-		return;			 // rather than at OPTIMAL_POSITION
-	}				 // (helps with UI, loading apps, etc.)
+		freq_table_position = OPTIMAL_POSITION;
+		return;
+	}
 
 	/* Get Absolute Load */
 	for_each_cpu(j, policy->cpus) {
@@ -174,13 +174,10 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 
 	/*
 	 * The optimal frequency is the jammiest. Mmm. 
-	 * Use the define at the top to set OPTIMAL_POSITION
-	 * as the position of the desired fq. in the table
-	 * E.g. position ? in the table represents 1242 MHz
 	 * Go straight to this if below and rising...
 	 * Go straight to this if above and falling, like smartass by erasmux
 	 */
-	if (max_load >= (94 + freq_table_position)) {
+	if (max_load >= (90 + freq_table_position)) {
 		if (++freq_table_position < OPTIMAL_POSITION) freq_table_position = OPTIMAL_POSITION;
 	}
 	if (max_load < (30 + freq_table_position)) {
@@ -189,14 +186,14 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	if (freq_table_position > (TABLE_SIZE-1)) freq_table_position = (TABLE_SIZE-1);
 	if (freq_table_position < 0) freq_table_position = 0;
 
-	if ((go_max || mako_boosted) && (freq_table_position < 2))
-		freq_table_position = 2;	// because the scaling logic may have 
+	if ((go_max || mako_boosted) && (freq_table_position < OPTIMAL_POSITION))
+		freq_table_position = OPTIMAL_POSITION;	// because the scaling logic may have 
 						// requested something lower
 
 	// apply hysteresis before dropping to lower bus speeds
-	if (freq_table_position >= 2) down_requests = 0;
-	if (freq_table_position < 2) down_requests++;
-	if ((down_requests < HYSTERESIS) && (freq_table_position < 2)) freq_table_position = 2;
+	if (freq_table_position >= OPTIMAL_POSITION) down_requests = 0;
+	if (freq_table_position < OPTIMAL_POSITION) down_requests++;
+	if ((down_requests < HYSTERESIS) && (freq_table_position < OPTIMAL_POSITION)) freq_table_position = OPTIMAL_POSITION;
 
 	freq_target = valid_fqs[freq_table_position];
 
