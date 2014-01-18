@@ -26,12 +26,12 @@
 
 #define TRANSITION_LATENCY_LIMIT	(10 * 1000 * 1000)
 #define SAMPLE_RATE			(40000)
-#define OPTIMAL_POSITION		(2)
-#define TABLE_SIZE			(9)
+#define OPTIMAL_POSITION		(4)
+#define TABLE_SIZE			(12)
 #define HYSTERESIS			(6)
 
-static const int valid_fqs[TABLE_SIZE] = {384000, 702000, 810000, 918000,
-			1134000, 1242000, 1350000,
+static const int valid_fqs[TABLE_SIZE] = {384000, 486000, 594000, 702000,
+			810000, 918000, 1026000, 1134000, 1242000, 1350000,
 			1458000, 1728000};
 static unsigned int min_sampling_rate;
 static void do_dbs_timer(struct work_struct *work);
