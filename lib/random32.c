@@ -125,6 +125,27 @@ static int __init random32_init(void)
 }
 core_initcall(random32_init);
 
+static void __prandom_timer(unsigned long dontcare);
+static DEFINE_TIMER(seed_timer, __prandom_timer, 0, 0);
+
+static void __prandom_timer(unsigned long dontcare)
+{
+	u32 entropy;
+
+	get_random_bytes(&entropy, sizeof(entropy));
+	prandom_seed(entropy);
+	/* reseed every ~60 seconds, in [40 .. 80) interval with slack */
+	seed_timer.expires = jiffies + (40 * HZ + (prandom_u32() % (40 * HZ)));
+	add_timer(&seed_timer);
+}
+
+static void prandom_start_seed_timer(void)
+{
+	set_timer_slack(&seed_timer, HZ);
+	seed_timer.expires = jiffies + 40 * HZ;
+	add_timer(&seed_timer);
+}
+
 /*
  *	Generate better values after random number generator
  *	is fully initialized.
@@ -145,6 +166,7 @@ static int __init random32_reseed(void)
 		/* mix it in */
 		prandom32(state);
 	}
+	prandom_start_seed_timer();
 	return 0;
 }
 late_initcall(random32_reseed);
