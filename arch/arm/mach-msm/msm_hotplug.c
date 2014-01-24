@@ -32,10 +32,12 @@
 #define NUM_LOAD_LEVELS		5
 #define DEFAULT_HISTORY_SIZE	10
 #define DEFAULT_DOWN_LOCK_DUR	2000
-#define DEFAULT_SUSPEND_FREQ	702000
+#define DEFAULT_SUSPEND_FREQ	1512000
 #define DEFAULT_NR_CPUS_BOOSTED	2
 #define DEFAULT_MIN_CPUS_ONLINE	2
 #define DEFAULT_MAX_CPUS_ONLINE	NR_CPUS
+
+extern bool early_suspended;
 
 static unsigned int debug = 0;
 module_param_named(debug_mask, debug, uint, 0644);
@@ -285,6 +287,8 @@ static void msm_hotplug_early_suspend(struct early_suspend *handler)
 	if (!policy)
 		return;
 
+	early_suspended = true;
+
 	flush_workqueue(hotplug_wq);
 	cancel_delayed_work_sync(&hotplug_work);
 
@@ -305,6 +309,8 @@ static void msm_hotplug_late_resume(struct early_suspend *handler)
 
 	if (!policy)
 		return;
+
+	early_suspended = false;
 
 	online_cpu(st->total_cpus);
 
