@@ -26,7 +26,7 @@
 
 #define TRANSITION_LATENCY_LIMIT	(10 * 1000 * 1000)
 #define SAMPLE_RATE			(40000)
-#define OPTIMAL_POSITION		(4)
+#define OPTIMAL_POSITION		(3)
 #define TABLE_SIZE			(12)
 #define HYSTERESIS			(6)
 
@@ -189,7 +189,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	 * Go straight to this if below and rising...
 	 * Go straight to this if above and falling, like smartass by erasmux
 	 */
-	if (max_load >= (90 + freq_table_position)) {
+	if (max_load >= 95) {
 		if (++freq_table_position < opt_pos) freq_table_position = opt_pos;
 	}
 	if (max_load < (30 + freq_table_position)) {

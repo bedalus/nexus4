@@ -2,7 +2,7 @@
     export PATH=$PATH:/opt/toolchain3/bin/
     export ARCH=arm
     export SUBARCH=arm
-    export CROSS_COMPILE=arm-unknown-linux-gnueabi-
+    export CROSS_COMPILE=arm-linux-gnueabi-
 
 git apply -R cm.patch
 make -j7
