@@ -25,6 +25,7 @@
 #endif
 
 #include <mach/cpufreq.h>
+#include "acpuclock.h"
 
 #define MSM_HOTPLUG		"msm_hotplug"
 #define DEFAULT_UPDATE_RATE	HZ / 10
@@ -33,8 +34,7 @@
 #define DEFAULT_HISTORY_SIZE	10
 #define DEFAULT_DOWN_LOCK_DUR	2000
 #define DEFAULT_SUSPEND_FREQ	1512000
-#define DEFAULT_NR_CPUS_BOOSTED	2
-#define DEFAULT_MIN_CPUS_ONLINE	2
+#define DEFAULT_MIN_CPUS_ONLINE	1
 #define DEFAULT_MAX_CPUS_ONLINE	NR_CPUS
 
 extern bool early_suspended;
@@ -53,7 +53,6 @@ static struct cpu_hotplug {
 	atomic_t target_cpus;
 	unsigned int min_cpus_online;
 	unsigned int max_cpus_online;
-	unsigned int cpus_boosted;
 	atomic_t down_lock;
 	unsigned int down_lock_dur;
 	struct work_struct up_work;
@@ -63,7 +62,6 @@ static struct cpu_hotplug {
 	.suspend_freq = DEFAULT_SUSPEND_FREQ,
 	.min_cpus_online = DEFAULT_MIN_CPUS_ONLINE,
 	.max_cpus_online = DEFAULT_MAX_CPUS_ONLINE,
-	.cpus_boosted = DEFAULT_NR_CPUS_BOOSTED,
 	.down_lock = ATOMIC_INIT(0),
 	.down_lock_dur = DEFAULT_DOWN_LOCK_DUR
 };
@@ -155,6 +153,26 @@ static void handle_lock_timer(unsigned long data)
 }
 EXPORT_SYMBOL_GPL(handle_lock_timer);
 
+static int get_slowest_cpu(void)
+{
+	int cpu, slowest_cpu = 0;
+	unsigned int lowest_rate = UINT_MAX;
+	unsigned int rate[NR_CPUS];
+
+	for_each_online_cpu(cpu) {
+		if (cpu == 0)
+			continue;
+		rate[cpu] = acpuclk_get_rate(cpu);
+		if (rate[cpu] < lowest_rate) {
+			lowest_rate = rate[cpu];
+			slowest_cpu = cpu;
+		}
+	}
+
+	return slowest_cpu;
+}
+EXPORT_SYMBOL_GPL(get_slowest_cpu);
+
 static void __ref cpu_up_work(struct work_struct *work)
 {
 	int cpu;
@@ -175,7 +193,7 @@ EXPORT_SYMBOL_GPL(cpu_up_work);
 
 static void cpu_down_work(struct work_struct *work)
 {
-	int cpu;
+	int cpu, slowest_cpu;
 	int lock, target;
 	struct cpu_hotplug *hp = &hotplug;
 
@@ -188,7 +206,9 @@ static void cpu_down_work(struct work_struct *work)
 	for_each_online_cpu(cpu) {
 		if (cpu == 0)
 			continue;
-		cpu_down(cpu);
+		slowest_cpu = get_slowest_cpu();
+		if (slowest_cpu)
+			cpu_down(slowest_cpu);
 		if (target == num_online_cpus())
 			break;
 	}
@@ -199,6 +219,9 @@ static void online_cpu(unsigned int target)
 {
 	struct cpu_hotplug *hp = &hotplug;
 
+	if (stats.total_cpus == num_online_cpus())
+		return;
+
 	atomic_set(&hp->target_cpus, target);
 	apply_down_lock();
 	queue_work_on(0, hotplug_wq, &hp->up_work);
@@ -208,6 +231,14 @@ EXPORT_SYMBOL_GPL(online_cpu);
 static void offline_cpu(unsigned int target)
 {
 	struct cpu_hotplug *hp = &hotplug;
+	int lock;
+
+	lock = atomic_read(&hp->down_lock);
+	if (lock)
+		return;
+
+	if (stats.min_cpus == num_online_cpus())
+		return;
 
 	atomic_set(&hp->target_cpus, target);
 	queue_work_on(0, hotplug_wq, &hp->down_work);
@@ -239,13 +270,6 @@ static void msm_hotplug_fn(struct work_struct *work)
 	} else if (hp->max_cpus_online == st->min_cpus) {
 		if (online_cpus != hp->max_cpus_online)
 			offline_cpu(hp->max_cpus_online);
-		goto reschedule;
-	}
-
-	if (online_cpus < hp->cpus_boosted && mako_boosted) {
-		dprintk("%s: cur_load: %3u online_cpus: %u mako_boosted\n",
-			MSM_HOTPLUG, cur_load, online_cpus);
-		online_cpu(hp->cpus_boosted);
 		goto reschedule;
 	}
 

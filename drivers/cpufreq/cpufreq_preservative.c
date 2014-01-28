@@ -144,7 +144,11 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	if (early_suspended) {
 		opt_pos = (OPTIMAL_POSITION - 1);
 	} else {
-		opt_pos = OPTIMAL_POSITION;
+		if (num_online_cpus() == 1) {
+			opt_pos = (OPTIMAL_POSITION + 1);
+		} else {
+			opt_pos = OPTIMAL_POSITION;
+		}
 	}
 
 	if (!early_suspended) {
@@ -189,7 +193,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	 * Go straight to this if below and rising...
 	 * Go straight to this if above and falling, like smartass by erasmux
 	 */
-	if (max_load >= 95) {
+	if (max_load >= (88 + freq_table_position)) {
 		if (++freq_table_position < opt_pos) freq_table_position = opt_pos;
 	}
 	if (max_load < (30 + freq_table_position)) {
