@@ -26,6 +26,8 @@
 #define TZ_GOVERNOR_PERFORMANCE 0
 #define TZ_GOVERNOR_ONDEMAND    1
 
+bool go_opt;
+
 struct tz_priv {
 	int governor;
 	unsigned int no_switch_cnt;
@@ -167,6 +169,8 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 	priv->bin.total_time = 0;
 	priv->bin.busy_time = 0;
 	idle = (idle > 0) ? idle : 0;
+	go_opt = false;
+	if ((priv->bin.busy_time/priv->bin.total_time) > 0.1) go_opt = true;
 	val = __secure_tz_entry(TZ_UPDATE_ID, idle, device->id);
 	if (val)
 		kgsl_pwrctrl_pwrlevel_change(device,

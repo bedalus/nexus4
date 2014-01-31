@@ -22,9 +22,11 @@
 #include <linux/ktime.h>
 #include <linux/sched.h>
 
+#include "../gpu/msm/kgsl.h"
+
 #define TRANSITION_LATENCY_LIMIT	(10 * 1000 * 1000)
 #define SAMPLE_RATE			(20000)
-#define OPTIMAL_POSITION		(3)
+#define OPTIMAL_POSITION		(4)
 #define TABLE_SIZE			(12)
 #define HYSTERESIS			(10)
 
@@ -39,6 +41,7 @@ static unsigned int min_sampling_rate;
 static void do_dbs_timer(struct work_struct *work);
 static unsigned int dbs_enable, down_requests;
 static int freq_table_position;
+extern bool go_opt;
 
 struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_idle;
@@ -143,7 +146,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	} else {
 		opt_pos = OPTIMAL_POSITION;
 		/* check for touch boost */
-		if (mako_boosted && (policy->cur < valid_fqs[opt_pos])) {
+		if ((mako_boosted || go_opt) && (policy->cur < valid_fqs[opt_pos])) {
 			__cpufreq_driver_target(policy, valid_fqs[opt_pos],
 				CPUFREQ_RELATION_H);
 			freq_table_position = opt_pos;
@@ -192,7 +195,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	if (freq_table_position > (TABLE_SIZE-1)) freq_table_position = (TABLE_SIZE-1);
 	if (freq_table_position < 0) freq_table_position = 0;
 
-	if (mako_boosted && (freq_table_position < opt_pos))
+	if ((mako_boosted || go_opt) && (freq_table_position < opt_pos))
 		freq_table_position = opt_pos;	// because the scaling logic may have 
 						// requested something lower
 
