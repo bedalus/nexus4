@@ -22,13 +22,11 @@
 #include <linux/ktime.h>
 #include <linux/sched.h>
 
-#include "../gpu/msm/kgsl.h"
-
 #define TRANSITION_LATENCY_LIMIT	(10 * 1000 * 1000)
-#define SAMPLE_RATE			(40000)
+#define SAMPLE_RATE			(20000)
 #define OPTIMAL_POSITION		(3)
 #define TABLE_SIZE			(12)
-#define HYSTERESIS			(6)
+#define HYSTERESIS			(10)
 
 static int opt_pos = OPTIMAL_POSITION;
 
@@ -40,8 +38,7 @@ static const int valid_fqs[TABLE_SIZE] = {384000, 486000, 594000, 702000,
 static unsigned int min_sampling_rate;
 static void do_dbs_timer(struct work_struct *work);
 static unsigned int dbs_enable, down_requests;
-extern int freq_table_position;
-bool go_max;
+static int freq_table_position;
 
 struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_idle;
@@ -144,16 +141,9 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	if (early_suspended) {
 		opt_pos = (OPTIMAL_POSITION - 1);
 	} else {
-		if (num_online_cpus() == 1) {
-			opt_pos = (OPTIMAL_POSITION + 1);
-		} else {
-			opt_pos = OPTIMAL_POSITION;
-		}
-	}
-
-	if (!early_suspended) {
-		/* check for touch boost or go_max (i.e. GPU heavy load)*/
-		if ((go_max || mako_boosted) && (policy->cur < valid_fqs[opt_pos])) {
+		opt_pos = OPTIMAL_POSITION;
+		/* check for touch boost */
+		if (mako_boosted && (policy->cur < valid_fqs[opt_pos])) {
 			__cpufreq_driver_target(policy, valid_fqs[opt_pos],
 				CPUFREQ_RELATION_H);
 			freq_table_position = opt_pos;
@@ -193,7 +183,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	 * Go straight to this if below and rising...
 	 * Go straight to this if above and falling, like smartass by erasmux
 	 */
-	if (max_load >= (88 + freq_table_position)) {
+	if (max_load > (88 + freq_table_position)) {
 		if (++freq_table_position < opt_pos) freq_table_position = opt_pos;
 	}
 	if (max_load < (21 + freq_table_position)) {
@@ -202,7 +192,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	if (freq_table_position > (TABLE_SIZE-1)) freq_table_position = (TABLE_SIZE-1);
 	if (freq_table_position < 0) freq_table_position = 0;
 
-	if ((go_max || mako_boosted) && (freq_table_position < opt_pos))
+	if (mako_boosted && (freq_table_position < opt_pos))
 		freq_table_position = opt_pos;	// because the scaling logic may have 
 						// requested something lower
 
