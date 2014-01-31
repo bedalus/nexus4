@@ -27,9 +27,6 @@
 
 #define KGSL_NAME "kgsl"
 
-extern int freq_table_position;
-extern bool go_max;
-
 /* The number of memstore arrays limits the number of contexts allowed.
  * If more contexts are needed, update multiple for MEMSTORE_SIZE
  */

@@ -26,9 +26,6 @@
 #define TZ_GOVERNOR_PERFORMANCE 0
 #define TZ_GOVERNOR_ONDEMAND    1
 
-int freq_table_position;
-extern bool go_max;
-
 struct tz_priv {
 	int governor;
 	unsigned int no_switch_cnt;
@@ -133,7 +130,6 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 	struct tz_priv *priv = pwrscale->priv;
 	struct kgsl_power_stats stats;
 	int val, idle;
-	bool boost;
 
 	/* In "performance" mode the clock speed always stays
 	   the same */
@@ -150,12 +146,6 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 	if ((stats.total_time == 0) ||
 		(priv->bin.total_time < FLOOR))
 		return;
-
-	boost = false;
-	/* Let's boost if there is any non-trivial CPU load */
-	if (freq_table_position > 4) {
-		boost = true;
-	}
 
 	/* If the GPU has stayed in turbo mode for a while, *
 	 * stop writing out values. */
@@ -177,9 +167,6 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 	priv->bin.total_time = 0;
 	priv->bin.busy_time = 0;
 	idle = (idle > 0) ? idle : 0;
-	go_max = false;
-	if (idle == 0) go_max = true;
-	if (boost) idle = 0;
 	val = __secure_tz_entry(TZ_UPDATE_ID, idle, device->id);
 	if (val)
 		kgsl_pwrctrl_pwrlevel_change(device,
