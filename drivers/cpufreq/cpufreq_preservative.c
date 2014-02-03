@@ -20,31 +20,30 @@
 #include <linux/hrtimer.h>
 #include <linux/tick.h>
 #include <linux/ktime.h>
-#include <linux/sched.h>
 
 #include "../gpu/msm/kgsl.h"
 
 #define TRANSITION_LATENCY_LIMIT	(10 * 1000 * 1000)
-#define SAMPLE_RATE			(20000)
-#define OPTIMAL_POSITION		(4)
+#define SAMPLE_RATE			(40009)
+#define OPTIMAL_POSITION		(3)
 #define TABLE_SIZE			(12)
-#define HYSTERESIS			(10)
-
-static int opt_pos = OPTIMAL_POSITION;
-
-bool early_suspended = false;
+#define HYSTERESIS			(5)
+#define UP_THRESH			(100)
 
 static const int valid_fqs[TABLE_SIZE] = {384000, 486000, 594000, 702000,
 			810000, 918000, 1026000, 1134000, 1242000, 1350000,
 			1458000, 1728000};
-static unsigned int min_sampling_rate;
 static void do_dbs_timer(struct work_struct *work);
-static unsigned int dbs_enable, down_requests;
-static int freq_table_position;
+
+static int thresh_adj = 0;
+static int opt_pos = OPTIMAL_POSITION;
 extern bool go_opt;
+static unsigned int dbs_enable, down_requests, freq_table_position, min_sampling_rate;
+bool early_suspended = false;
 
 struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_idle;
+	cputime64_t prev_cpu_iowait;
 	cputime64_t prev_cpu_wall;
 	cputime64_t prev_cpu_nice;
 	struct cpufreq_policy *cur_policy;
@@ -58,10 +57,12 @@ static DEFINE_PER_CPU(struct cpu_dbs_info_s, cs_cpu_dbs_info);
 
 static DEFINE_MUTEX(dbs_mutex);
 
+static struct workqueue_struct *dbs_wq;
+
 static struct dbs_tuners {
-	unsigned int sampling_rate;
+	unsigned int up_threshold;
 } dbs_tuners_ins = {
-	.sampling_rate = SAMPLE_RATE
+	.up_threshold = UP_THRESH,
 };
 
 static inline u64 get_cpu_idle_time_jiffy(unsigned int cpu, u64 *wall)
@@ -98,6 +99,16 @@ static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
 	return idle_time;
 }
 
+static inline cputime64_t get_cpu_iowait_time(unsigned int cpu, cputime64_t *wall)
+{
+	u64 iowait_time = get_cpu_iowait_time_us(cpu, wall);
+
+	if (iowait_time == -1ULL)
+		return 0;
+
+	return iowait_time;
+}
+
 /* keep track of frequency transitions */
 static int
 dbs_cpufreq_notifier(struct notifier_block *nb, unsigned long val,
@@ -130,19 +141,96 @@ static struct notifier_block dbs_cpufreq_notifier_block = {
 	.notifier_call = dbs_cpufreq_notifier
 };
 
-static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
+/************************** sysfs interface ************************/
+/* cpufreq_conservative Governor Tunables */
+#define show_one(file_name, object)					\
+static ssize_t show_##file_name						\
+(struct kobject *kobj, struct attribute *attr, char *buf)		\
+{									\
+	return sprintf(buf, "%u\n", dbs_tuners_ins.object);		\
+}
+show_one(up_threshold, up_threshold);
+
+static ssize_t store_up_threshold(struct kobject *a, struct attribute *b,
+				  const char *buf, size_t count)
+{
+	unsigned int input;
+	int ret;
+	ret = sscanf(buf, "%u", &input);
+
+	if (ret != 1 || input > 127 )
+		return -EINVAL;
+
+	dbs_tuners_ins.up_threshold = input;
+	return count;
+}
+
+define_one_global_rw(up_threshold);
+
+static struct attribute *dbs_attributes[] = {
+	&up_threshold.attr,
+	NULL
+};
+
+static struct attribute_group dbs_attr_group = {
+	.attrs = dbs_attributes,
+	.name = "preservative",
+};
+
+/************************** sysfs end ************************/
+
+static int get_load(struct cpufreq_policy *policy)
 {
 	unsigned int load = 0;
 	unsigned int max_load = 0;
-	unsigned int freq_target;
-
-	struct cpufreq_policy *policy;
 	unsigned int j;
 
-	policy = this_dbs_info->cur_policy;
+	/* Get Absolute Load */
+	for_each_cpu(j, policy->cpus) {
+		struct cpu_dbs_info_s *j_dbs_info;
+		cputime64_t cur_wall_time, cur_idle_time, cur_iowait_time;
+		unsigned int idle_time, wall_time, iowait_time;
+
+		j_dbs_info = &per_cpu(cs_cpu_dbs_info, j);
+
+		cur_idle_time = get_cpu_idle_time(j, &cur_wall_time);
+		cur_iowait_time = get_cpu_iowait_time(j, &cur_wall_time);
+
+		wall_time = (unsigned int)
+			(cur_wall_time - j_dbs_info->prev_cpu_wall);
+		j_dbs_info->prev_cpu_wall = cur_wall_time;
+
+		idle_time = (unsigned int)
+			(cur_idle_time - j_dbs_info->prev_cpu_idle);
+		j_dbs_info->prev_cpu_idle = cur_idle_time;
+
+		iowait_time = (unsigned int)
+			(cur_iowait_time - j_dbs_info->prev_cpu_iowait);
+		j_dbs_info->prev_cpu_iowait = cur_iowait_time;
+
+		if (idle_time >= iowait_time)
+			idle_time -= iowait_time;
+
+		if (unlikely(!wall_time || wall_time < idle_time))
+			continue;
+
+		load = 128 * (wall_time - idle_time) / wall_time;
+
+		if (load > max_load)
+			max_load = load;
+	}
+	return max_load;
+}
+
+static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
+{
+	
+	unsigned int target_table_position = 0;
+	unsigned int max_load, freq_target, j;
+	struct cpufreq_policy *policy = this_dbs_info->cur_policy;
 
 	if (early_suspended) {
-		opt_pos = (OPTIMAL_POSITION - 1);
+		opt_pos = 1;
 	} else {
 		opt_pos = OPTIMAL_POSITION;
 		/* check for touch boost */
@@ -154,62 +242,51 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		}
 	}
 
-	/* Get Absolute Load */
-	for_each_cpu(j, policy->cpus) {
-		struct cpu_dbs_info_s *j_dbs_info;
-		cputime64_t cur_wall_time, cur_idle_time;
-		unsigned int idle_time, wall_time;
+	max_load = get_load(policy);
 
-		j_dbs_info = &per_cpu(cs_cpu_dbs_info, j);
-
-		cur_idle_time = get_cpu_idle_time(j, &cur_wall_time);
-
-		wall_time = (unsigned int)
-			(cur_wall_time - j_dbs_info->prev_cpu_wall);
-		j_dbs_info->prev_cpu_wall = cur_wall_time;
-
-		idle_time = (unsigned int)
-			(cur_idle_time - j_dbs_info->prev_cpu_idle);
-		j_dbs_info->prev_cpu_idle = cur_idle_time;
-
-		if (unlikely(!wall_time || wall_time < idle_time))
-			continue;
-
-		load = 100 * (wall_time - idle_time) / wall_time;
-
-		if (load > max_load)
-			max_load = load;
+	// for power saving, if we hit top fq, make it harder to scale up
+	// conversely for performance, if we hit opt_pos, make it easier to scale up
+	if (freq_table_position == (TABLE_SIZE - 1)) {
+		if (++thresh_adj < 0) thresh_adj = 0;
+		if ((dbs_tuners_ins.up_threshold + thresh_adj) > 126) thresh_adj = 126 - dbs_tuners_ins.up_threshold;
+	}
+	if (freq_table_position <= opt_pos) {
+		if (--thresh_adj > 0) thresh_adj = 0;
+		if ((dbs_tuners_ins.up_threshold + thresh_adj) < 20) thresh_adj = 20 - dbs_tuners_ins.up_threshold;
 	}
 
-	/*
-	 * The optimal frequency is the jammiest. Mmm. 
-	 * Go straight to this if below and rising...
-	 * Go straight to this if above and falling, like smartass by erasmux
-	 */
-	if (max_load > (88 + freq_table_position)) {
-		if (++freq_table_position < opt_pos) freq_table_position = opt_pos;
+	if (max_load > (dbs_tuners_ins.up_threshold + thresh_adj)) {
+		if (freq_table_position < opt_pos) {
+			freq_table_position = opt_pos; // must hit opt_pos first if going up from 0 pos
+		} else {
+			freq_table_position = (freq_table_position + TABLE_SIZE) / 2;
+		}
+	} else {
+		freq_target = max_load * valid_fqs[freq_table_position] / 128;
+		for (j = 0; j < TABLE_SIZE; j++) {
+			if (valid_fqs[target_table_position] < freq_target) target_table_position++;
+		}
+		freq_table_position = (freq_table_position + target_table_position + !early_suspended) / 2;
 	}
-	if (max_load < (21 + freq_table_position)) {
-		if (--freq_table_position > opt_pos) freq_table_position = opt_pos;
+
+	if (!early_suspended) {
+		// apply hysteresis before dropping to lower bus speeds
+		if (freq_table_position < opt_pos) {
+			freq_table_position = opt_pos;
+			if (++down_requests >= HYSTERESIS) freq_table_position = 0;
+		} else {
+			down_requests = 0;
+		}
+
+		if ((mako_boosted || go_opt) && (freq_table_position < opt_pos))
+			freq_table_position = opt_pos;	// because the scaling logic may have 
+							// requested something lower
 	}
-	if (freq_table_position > (TABLE_SIZE-1)) freq_table_position = (TABLE_SIZE-1);
-	if (freq_table_position < 0) freq_table_position = 0;
 
-	if ((mako_boosted || go_opt) && (freq_table_position < opt_pos))
-		freq_table_position = opt_pos;	// because the scaling logic may have 
-						// requested something lower
-
-	// apply hysteresis before dropping to lower bus speeds
-	if (freq_table_position >= opt_pos) down_requests = 0;
-	if (freq_table_position < opt_pos) down_requests++;
-	if ((down_requests < HYSTERESIS) && (freq_table_position < opt_pos)) freq_table_position = opt_pos;
-
-	freq_target = valid_fqs[freq_table_position];
-
-	this_dbs_info->requested_freq = freq_target;
+	this_dbs_info->requested_freq = valid_fqs[freq_table_position];
 
 	// if already on target, break out early
-	if (policy->cur == freq_target)
+	if (policy->cur == valid_fqs[freq_table_position])
 		return;
 
 	__cpufreq_driver_target(policy, this_dbs_info->requested_freq,
@@ -223,7 +300,7 @@ static void do_dbs_timer(struct work_struct *work)
 		container_of(work, struct cpu_dbs_info_s, work.work);
 	unsigned int cpu = dbs_info->cpu;
 
-	int delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate);
+	int delay = usecs_to_jiffies(SAMPLE_RATE);
 
 	delay -= jiffies % delay;
 
@@ -231,18 +308,18 @@ static void do_dbs_timer(struct work_struct *work)
 
 	dbs_check_cpu(dbs_info);
 
-	schedule_delayed_work_on(cpu, &dbs_info->work, delay);
+	queue_delayed_work_on(cpu, dbs_wq, &dbs_info->work, delay);
 	mutex_unlock(&dbs_info->timer_mutex);
 }
 
 static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)
 {
-	int delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate);
+	int delay = usecs_to_jiffies(SAMPLE_RATE);
 	delay -= jiffies % delay;
 
 	dbs_info->enable = 1;
 	INIT_DELAYED_WORK_DEFERRABLE(&dbs_info->work, do_dbs_timer);
-	schedule_delayed_work_on(dbs_info->cpu, &dbs_info->work, delay);
+	queue_delayed_work_on(dbs_info->cpu, dbs_wq, &dbs_info->work, delay);
 }
 
 static inline void dbs_timer_exit(struct cpu_dbs_info_s *dbs_info)
@@ -257,6 +334,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 	unsigned int cpu = policy->cpu;
 	struct cpu_dbs_info_s *this_dbs_info;
 	unsigned int j;
+	int rc;
 
 	this_dbs_info = &per_cpu(cs_cpu_dbs_info, cpu);
 
@@ -285,6 +363,13 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			latency = policy->cpuinfo.transition_latency / 1000;
 			if (latency == 0)
 				latency = 1;
+
+			rc = sysfs_create_group(cpufreq_global_kobject,
+						&dbs_attr_group);
+			if (rc) {
+				mutex_unlock(&dbs_mutex);
+				return rc;
+			}
 
 			min_sampling_rate = SAMPLE_RATE;
 
@@ -343,14 +428,20 @@ struct cpufreq_governor cpufreq_gov_preservative = {
 
 static int __init cpufreq_gov_dbs_init(void)
 {
+	dbs_wq = alloc_workqueue("preservative_dbs_wq", WQ_HIGHPRI, 0);
+	if (!dbs_wq) {
+		printk(KERN_ERR "Failed to create preservative_dbs_wq workqueue\n");
+		return -EFAULT;
+	}
+
 	return cpufreq_register_governor(&cpufreq_gov_preservative);
 }
 
 static void __exit cpufreq_gov_dbs_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_preservative);
+	destroy_workqueue(dbs_wq);
 }
-
 
 MODULE_AUTHOR("bedalus");
 MODULE_DESCRIPTION("Jelly, jam and preserves are all made from fruit mixed with sugar and"
