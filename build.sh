@@ -2,7 +2,7 @@
     export PATH=$PATH:/opt/toolchain3/bin/
     export ARCH=arm
     export SUBARCH=arm
-    export CROSS_COMPILE=arm-linux-gnueabi-
+    export CROSS_COMPILE=arm-cortex_a15-linux-gnueabihf-
 
 git apply -R cm.patch
 make -j7
