@@ -11,7 +11,6 @@
  *
  */
 
-#include <linux/dma-mapping.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -26,9 +25,7 @@
 #include <linux/smp.h>
 #include <linux/suspend.h>
 #include <linux/tick.h>
-#include <linux/delay.h>
 #include <linux/platform_device.h>
-#include <linux/of_platform.h>
 #include <mach/msm_iomap.h>
 #include <mach/socinfo.h>
 #include <mach/system.h>
@@ -122,7 +119,6 @@ static char *msm_pm_sleep_mode_labels[MSM_PM_SLEEP_MODE_NR] = {
 
 static struct hrtimer pm_hrtimer;
 static struct msm_pm_sleep_ops pm_sleep_ops;
-static struct msm_pm_sleep_status_data *msm_pm_slp_sts;
 /*
  * Write out the attribute.
  */
@@ -386,6 +382,40 @@ module_param_named(sleep_time_override,
 #endif
 
 #define SCLK_HZ (32768)
+#define MSM_PM_SLEEP_TICK_LIMIT (0x6DDD000)
+
+static uint32_t msm_pm_max_sleep_time;
+
+/*
+ * Convert time from nanoseconds to slow clock ticks, then cap it to the
+ * specified limit
+ */
+static int64_t msm_pm_convert_and_cap_time(int64_t time_ns, int64_t limit)
+{
+	do_div(time_ns, NSEC_PER_SEC / SCLK_HZ);
+	return (time_ns > limit) ? limit : time_ns;
+}
+
+/*
+ * Set the sleep time for suspend.  0 means infinite sleep time.
+ */
+void msm_pm_set_max_sleep_time(int64_t max_sleep_time_ns)
+{
+	if (max_sleep_time_ns == 0) {
+		msm_pm_max_sleep_time = 0;
+	} else {
+		msm_pm_max_sleep_time = (uint32_t)msm_pm_convert_and_cap_time(
+			max_sleep_time_ns, MSM_PM_SLEEP_TICK_LIMIT);
+
+		if (msm_pm_max_sleep_time == 0)
+			msm_pm_max_sleep_time = 1;
+	}
+
+	if (msm_pm_debug_mask & MSM_PM_DEBUG_SUSPEND)
+		pr_info("%s: Requested %lld ns Giving %u sclk ticks\n",
+			__func__, max_sleep_time_ns, msm_pm_max_sleep_time);
+}
+EXPORT_SYMBOL(msm_pm_set_max_sleep_time);
 
 struct reg_data {
 	uint32_t reg;
@@ -671,7 +701,7 @@ static int64_t msm_pm_timer_enter_suspend(int64_t *period)
 	int64_t time = 0;
 
 	if (msm_pm_use_qtimer)
-		return ktime_to_ns(ktime_get());
+		return sched_clock();
 
 	time = msm_timer_get_sclk_time(period);
 	if (!time)
@@ -683,7 +713,7 @@ static int64_t msm_pm_timer_enter_suspend(int64_t *period)
 static int64_t msm_pm_timer_exit_suspend(int64_t time, int64_t period)
 {
 	if (msm_pm_use_qtimer)
-		return ktime_to_ns(ktime_get()) - time;
+		return sched_clock() - time;
 
 	if (time != 0) {
 		int64_t end_time = msm_timer_get_sclk_time(NULL);
@@ -734,7 +764,7 @@ int msm_pm_idle_prepare(struct cpuidle_device *dev,
 {
 	int i;
 	unsigned int power_usage = -1;
-	int ret = MSM_PM_SLEEP_MODE_NOT_SELECTED;
+	int ret = 0;
 	uint32_t modified_time_us = 0;
 	struct msm_pm_time_params time_param;
 
@@ -872,16 +902,23 @@ int msm_pm_idle_enter(enum msm_pm_sleep_mode sleep_mode)
 		break;
 
 	case MSM_PM_SLEEP_MODE_POWER_COLLAPSE: {
+		int64_t timer_expiration = 0;
 		bool timer_halted = false;
-		uint32_t sleep_delay = 1;
+		uint32_t sleep_delay;
 		int ret = -ENODEV;
 		int notify_rpm =
 			(sleep_mode == MSM_PM_SLEEP_MODE_POWER_COLLAPSE);
 		int collapsed = 0;
 
-		sleep_delay = (uint32_t)msm_pm_timer_enter_idle();
+		timer_expiration = msm_pm_timer_enter_idle();
+
+		sleep_delay = (uint32_t) msm_pm_convert_and_cap_time(
+			timer_expiration, MSM_PM_SLEEP_TICK_LIMIT);
 		if (sleep_delay == 0) /* 0 would mean infinite time */
 			sleep_delay = 1;
+
+		if (MSM_PM_DEBUG_IDLE_CLK & msm_pm_debug_mask)
+			clock_debug_print_enabled();
 
 		if (pm_sleep_ops.enter_sleep)
 			ret = pm_sleep_ops.enter_sleep(sleep_delay,
@@ -903,14 +940,9 @@ int msm_pm_idle_enter(enum msm_pm_sleep_mode sleep_mode)
 		break;
 	}
 
-	case MSM_PM_SLEEP_MODE_NOT_SELECTED:
-		goto cpuidle_enter_bail;
-		break;
-
 	default:
 		__WARN();
 		goto cpuidle_enter_bail;
-		break;
 	}
 
 	time = ktime_to_ns(ktime_get()) - time;
@@ -921,32 +953,6 @@ int msm_pm_idle_enter(enum msm_pm_sleep_mode sleep_mode)
 
 cpuidle_enter_bail:
 	return 0;
-}
-
-int msm_pm_wait_cpu_shutdown(unsigned int cpu)
-{
-	int timeout = 0;
-
-	if (!msm_pm_slp_sts)
-		return 0;
-	if (!msm_pm_slp_sts[cpu].base_addr)
-		return 0;
-	while (1) {
-		/*
-		 * Check for the SPM of the core being hotplugged to set
-		 * its sleep state.The SPM sleep state indicates that the
-		 * core has been power collapsed.
-		 */
-		int acc_sts = __raw_readl(msm_pm_slp_sts[cpu].base_addr);
-
-		if (acc_sts & msm_pm_slp_sts[cpu].mask)
-			return 0;
-		udelay(100);
-		WARN(++timeout == 50, "CPU%u didn't collape within 5ms\n",
-					cpu);
-	}
-
-	return -EBUSY;
 }
 
 void msm_pm_cpu_enter_lowpower(unsigned int cpu)
@@ -1006,18 +1012,19 @@ static int msm_pm_enter(suspend_state_t state)
 		void *rs_limits = NULL;
 		int ret = -ENODEV;
 		uint32_t power;
-		uint32_t msm_pm_max_sleep_time = 0;
 		int collapsed = 0;
 
 		if (MSM_PM_DEBUG_SUSPEND & msm_pm_debug_mask)
 			pr_info("%s: power collapse\n", __func__);
 
+		clock_debug_print_enabled();
+
 #ifdef CONFIG_MSM_SLEEP_TIME_OVERRIDE
 		if (msm_pm_sleep_time_override > 0) {
 			int64_t ns = NSEC_PER_SEC *
 				(int64_t) msm_pm_sleep_time_override;
-			do_div(ns, NSEC_PER_SEC / SCLK_HZ);
-			msm_pm_max_sleep_time = (uint32_t) ns;
+			msm_pm_set_max_sleep_time(ns);
+			msm_pm_sleep_time_override = 0;
 		}
 #endif /* CONFIG_MSM_SLEEP_TIME_OVERRIDE */
 		if (pm_sleep_ops.lowest_limits)
@@ -1116,93 +1123,6 @@ static struct of_device_id msm_pc_debug_table[] = {
 	{.compatible = "qcom,pc-cntr"},
 	{},
 };
-static int __devinit msm_cpu_status_probe(struct platform_device *pdev)
-{
-	struct msm_pm_sleep_status_data *pdata;
-	char *key;
-	u32 cpu;
-
-	if (!pdev)
-		return -EFAULT;
-
-	msm_pm_slp_sts =
-		kzalloc(sizeof(*msm_pm_slp_sts) * num_possible_cpus(),
-				GFP_KERNEL);
-
-	if (!msm_pm_slp_sts)
-		return -ENOMEM;
-
-	if (pdev->dev.of_node) {
-		struct resource *res;
-		u32 offset;
-		int rc;
-		u32 mask;
-
-		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-		if (!res)
-			goto fail_free_mem;
-
-		key = "qcom,cpu-alias-addr";
-		rc = of_property_read_u32(pdev->dev.of_node, key, &offset);
-
-		if (rc)
-			goto fail_free_mem;
-
-		key = "qcom,sleep-status-mask";
-		rc = of_property_read_u32(pdev->dev.of_node, key,
-					&mask);
-		if (rc)
-			goto fail_free_mem;
-
-		for_each_possible_cpu(cpu) {
-			msm_pm_slp_sts[cpu].base_addr =
-				ioremap(res->start + cpu * offset,
-					resource_size(res));
-			msm_pm_slp_sts[cpu].mask = mask;
-
-			if (!msm_pm_slp_sts[cpu].base_addr)
-				goto failed_of_node;
-		}
-
-	} else {
-		pdata = pdev->dev.platform_data;
-		if (!pdev->dev.platform_data)
-			goto fail_free_mem;
-
-		for_each_possible_cpu(cpu) {
-			msm_pm_slp_sts[cpu].base_addr =
-				pdata->base_addr + cpu * pdata->cpu_offset;
-			msm_pm_slp_sts[cpu].mask = pdata->mask;
-		}
-	}
-
-	return 0;
-
-failed_of_node:
-	pr_info("%s(): Failed to key=%s\n", __func__, key);
-	for_each_possible_cpu(cpu) {
-		if (msm_pm_slp_sts[cpu].base_addr)
-			iounmap(msm_pm_slp_sts[cpu].base_addr);
-	}
-fail_free_mem:
-	kfree(msm_pm_slp_sts);
-	return -EINVAL;
-
-};
-
-static struct of_device_id msm_slp_sts_match_tbl[] = {
-	{.compatible = "qcom,cpu-sleep-status"},
-	{},
-};
-
-static struct platform_driver msm_cpu_status_driver = {
-	.probe = msm_cpu_status_probe,
-	.driver = {
-		.name = "cpu_slp_status",
-		.owner = THIS_MODULE,
-		.of_match_table = msm_slp_sts_match_tbl,
-	},
-};
 
 static struct platform_driver msm_pc_counter_driver = {
 	.probe = msm_pc_debug_probe,
@@ -1219,7 +1139,6 @@ static int __init msm_pm_setup_saved_state(void)
 	pmd_t *pmd;
 	unsigned long pmdval;
 	unsigned long exit_phys;
-	dma_addr_t temp_phys;
 
 	/* Page table for cores to come back up safely. */
 
@@ -1236,20 +1155,16 @@ static int __init msm_pm_setup_saved_state(void)
 	pmd[0] = __pmd(pmdval);
 	pmd[1] = __pmd(pmdval + (1 << (PGDIR_SHIFT - 1)));
 
-	msm_saved_state = dma_zalloc_coherent(NULL, CPU_SAVED_STATE_SIZE *
-						num_possible_cpus(),
-						&temp_phys, 0);
-
+	msm_saved_state_phys =
+		allocate_contiguous_ebi_nomap(CPU_SAVED_STATE_SIZE *
+					      num_possible_cpus(), 4);
+	if (!msm_saved_state_phys)
+		return -ENOMEM;
+	msm_saved_state = ioremap_nocache(msm_saved_state_phys,
+					  CPU_SAVED_STATE_SIZE *
+					  num_possible_cpus());
 	if (!msm_saved_state)
 		return -ENOMEM;
-
-	/*
-	 * Explicitly cast here since msm_saved_state_phys is defined
-	 * in assembly and we want to avoid any kind of truncation
-	 * or endian problems.
-	 */
-	msm_saved_state_phys = (unsigned long)temp_phys;
-
 
 	/* It is remotely possible that the code in msm_pm_collapse_exit()
 	 * which turns on the MMU with this mapping is in the
@@ -1265,12 +1180,10 @@ static int __init msm_pm_setup_saved_state(void)
 
 	return 0;
 }
-arch_initcall(msm_pm_setup_saved_state);
+core_initcall(msm_pm_setup_saved_state);
 
 static int __init msm_pm_init(void)
 {
-	int rc;
-
 	enum msm_pm_time_stats_id enable_stats[] = {
 		MSM_PM_STAT_IDLE_WFI,
 		MSM_PM_STAT_RETENTION,
@@ -1287,14 +1200,6 @@ static int __init msm_pm_init(void)
 	hrtimer_init(&pm_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	msm_cpuidle_init();
 	platform_driver_register(&msm_pc_counter_driver);
-	rc = platform_driver_register(&msm_cpu_status_driver);
-
-	if (rc) {
-		pr_err("%s(): failed to register driver %s\n", __func__,
-				msm_cpu_status_driver.driver.name);
-		return rc;
-	}
-
 
 	return 0;
 }
