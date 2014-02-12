@@ -12,8 +12,8 @@ make -j7
 cp -f arch/arm/boot/zImage ../zip/kernel/
 ls -l ../zip/kernel/zImage
 cd ../zip
-zip -r -9 kernel.zip * > /dev/null
-mv kernel.zip ../
+zip -r -9 moob_vNcm.zip * > /dev/null
+mv moob_vNcm ../
 
 echo "Press enter to build AOSP kernel"
 read enterkey
@@ -25,8 +25,8 @@ make -j7
 cp -f arch/arm/boot/zImage ../zip/kernel/
 ls -l ../zip/kernel/zImage
 cd ../zip
-zip -r -9 kernel_cm.zip * > /dev/null
-mv kernel_cm.zip ../
+zip -r -9 moob_vN.zip * > /dev/null
+mv moob_vN.zip ../
 cd ../nexus4
 git apply cm.patch
 

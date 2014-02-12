@@ -9,6 +9,8 @@
 #define __ALIGN_KERNEL(x, a)		__ALIGN_KERNEL_MASK(x, (typeof(x))(a) - 1)
 #define __ALIGN_KERNEL_MASK(x, mask)	(((x) + (mask)) & ~(mask))
 
+#define REPEAT_BYTE(x) ((~0ul / 0xff) * (x))
+
 #ifdef __KERNEL__
 
 #include <stdarg.h>
