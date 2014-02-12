@@ -13,7 +13,7 @@ cp -f arch/arm/boot/zImage ../zip/kernel/
 ls -l ../zip/kernel/zImage
 cd ../zip
 zip -r -9 moob_vNcm.zip * > /dev/null
-mv moob_vNcm ../
+mv moob_vNcm.zip ../
 
 echo "Press enter to build AOSP kernel"
 read enterkey
