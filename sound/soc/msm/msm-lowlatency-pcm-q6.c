@@ -34,7 +34,7 @@
 static struct audio_locks the_locks;
 #define ENABLE_QOS
 #ifdef ENABLE_QOS
-#define LOW_LATENCY_QOS_SETTING_USECS 1000
+#define LOW_LATENCY_QOS_SETTING_USECS 4000
 /* FIXME move this to private structure */
 static struct pm_qos_request lpm_qos_req;
 static bool first_time = true;
