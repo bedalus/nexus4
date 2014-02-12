@@ -21,7 +21,7 @@ if [ "$?" = "0" ]; then
 	git diff HEAD^ HEAD > 01.patch
 	git reset --hard HEAD^
 	git apply 01.patch
-	git status | grep -i "\." | grep -i "Modified" | grep -i "\.c" | sed 's/	modified:   //' | sed 's/\.c/.o/'> 01.data
+	git status | grep -i "\." | grep -i "Modified" | grep -i "\.c" | sed 's/#	modified:   //' | sed 's/\.c/.o/'> 01.data
 
 	PATCH=true
 	while read line           
