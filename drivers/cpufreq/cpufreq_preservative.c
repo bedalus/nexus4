@@ -27,7 +27,7 @@
 #define SAMPLE_RATE			(40009)
 #define OPTIMAL_POSITION		(3)
 #define TABLE_SIZE			(12)
-#define HYSTERESIS			(5)
+#define HYSTERESIS			(3)
 #define UP_THRESH			(100)
 
 static const int valid_fqs[TABLE_SIZE] = {384000, 486000, 594000, 702000,
@@ -252,7 +252,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	}
 	if (freq_table_position <= opt_pos) {
 		if (--thresh_adj > 0) thresh_adj = 0;
-		if ((dbs_tuners_ins.up_threshold + thresh_adj) < 20) thresh_adj = 20 - dbs_tuners_ins.up_threshold;
+		if ((dbs_tuners_ins.up_threshold + thresh_adj) < 40) thresh_adj = 40 - dbs_tuners_ins.up_threshold;
 	}
 
 	if (max_load > (dbs_tuners_ins.up_threshold + thresh_adj)) {
