@@ -917,10 +917,6 @@ enum msm_pm_sleep_mode msm_pm_idle_enter(struct cpuidle_device *dev,
 		goto cpuidle_enter_bail;
 		break;
 
-	case MSM_PM_SLEEP_MODE_NOT_SELECTED:
-		goto cpuidle_enter_bail;
-		break;
-
 	default:
 		__WARN();
 		goto cpuidle_enter_bail;
