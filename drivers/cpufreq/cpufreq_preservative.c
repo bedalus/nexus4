@@ -27,7 +27,7 @@
 #define SAMPLE_RATE			(40009)
 #define OPTIMAL_POSITION		(3)
 #define TABLE_SIZE			(12)
-#define HYSTERESIS			(3)
+#define HYSTERESIS			(7)
 #define UP_THRESH			(100)
 
 static const int valid_fqs[TABLE_SIZE] = {384000, 486000, 594000, 702000,
@@ -248,7 +248,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	// conversely for performance, if we hit opt_pos, make it easier to scale up
 	if (freq_table_position == (TABLE_SIZE - 1)) {
 		if (++thresh_adj < 0) thresh_adj = 0;
-		if ((dbs_tuners_ins.up_threshold + thresh_adj) > 126) thresh_adj = 126 - dbs_tuners_ins.up_threshold;
+		if ((dbs_tuners_ins.up_threshold + thresh_adj) > 128) thresh_adj = 128 - dbs_tuners_ins.up_threshold;
 	}
 	if (freq_table_position <= opt_pos) {
 		if (--thresh_adj > 0) thresh_adj = 0;
@@ -259,7 +259,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		if (freq_table_position < opt_pos) {
 			freq_table_position = opt_pos; // must hit opt_pos first if going up from 0 pos
 		} else {
-			freq_table_position = (freq_table_position + TABLE_SIZE) / 2;
+			freq_table_position = TABLE_SIZE - 1;
 		}
 	} else {
 		freq_target = max_load * valid_fqs[freq_table_position] / 128;
