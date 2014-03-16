@@ -25,14 +25,19 @@
 #endif
 
 #include <mach/cpufreq.h>
+#include "acpuclock.h"
 
 #define MSM_HOTPLUG		"msm_hotplug"
 #define DEFAULT_UPDATE_RATE	HZ / 10
-#define START_DELAY		HZ * 20
+#define START_DELAY		HZ * 10
 #define NUM_LOAD_LEVELS		5
 #define DEFAULT_HISTORY_SIZE	10
 #define DEFAULT_DOWN_LOCK_DUR	2000
-#define DEFAULT_SUSPEND_FREQ	702000
+#define DEFAULT_SUSPEND_FREQ	1512000
+#define DEFAULT_MIN_CPUS_ONLINE	2
+#define DEFAULT_MAX_CPUS_ONLINE	NR_CPUS
+
+extern bool early_suspended;
 
 static unsigned int debug = 0;
 module_param_named(debug_mask, debug, uint, 0644);
@@ -46,6 +51,8 @@ do { 				\
 static struct cpu_hotplug {
 	unsigned int suspend_freq;
 	atomic_t target_cpus;
+	unsigned int min_cpus_online;
+	unsigned int max_cpus_online;
 	atomic_t down_lock;
 	unsigned int down_lock_dur;
 	struct work_struct up_work;
@@ -53,6 +60,8 @@ static struct cpu_hotplug {
 	struct timer_list lock_timer;
 } hotplug = {
 	.suspend_freq = DEFAULT_SUSPEND_FREQ,
+	.min_cpus_online = DEFAULT_MIN_CPUS_ONLINE,
+	.max_cpus_online = DEFAULT_MAX_CPUS_ONLINE,
 	.down_lock = ATOMIC_INIT(0),
 	.down_lock_dur = DEFAULT_DOWN_LOCK_DUR
 };
@@ -76,7 +85,6 @@ static struct cpu_stats {
 	.total_cpus = NR_CPUS
 };
 
-static DEFINE_SPINLOCK(stats_lock);
 static DEFINE_MUTEX(hotplug_lock);
 #ifdef CONFIG_HAS_EARLYSUSPEND
 extern int get_suspend_state(void);
@@ -87,10 +95,9 @@ static struct cpu_stats *get_load_stats(void)
 {
 	unsigned int i, j;
 	unsigned int load = 0;
-	unsigned long flags;
 	struct cpu_stats *st = &stats;
 
-	spin_lock_irqsave(&stats_lock, flags);
+	st->online_cpus = num_online_cpus();
 	st->load_hist[st->hist_cnt] = report_load_at_max_freq();
 
 	for (i = 0, j = st->hist_cnt; i < st->hist_size; i++, j--) {
@@ -103,13 +110,10 @@ static struct cpu_stats *get_load_stats(void)
 	if (++st->hist_cnt == st->hist_size)
 		st->hist_cnt = 0;
 
-	st->online_cpus = num_online_cpus();
 	st->current_load = load / st->hist_size;
-	spin_unlock_irqrestore(&stats_lock, flags);
 
 	return st;
 }
-
 EXPORT_SYMBOL_GPL(get_load_stats);
 
 struct load_thresh_tbl {
@@ -139,7 +143,6 @@ static void apply_down_lock(void)
 	mod_timer(&hp->lock_timer,
 		  jiffies + msecs_to_jiffies(hp->down_lock_dur));
 }
-
 EXPORT_SYMBOL_GPL(apply_down_lock);
 
 static void handle_lock_timer(unsigned long data)
@@ -148,8 +151,27 @@ static void handle_lock_timer(unsigned long data)
 
 	atomic_set(&hp->down_lock, 0);
 }
-
 EXPORT_SYMBOL_GPL(handle_lock_timer);
+
+static int get_slowest_cpu(void)
+{
+	int cpu, slowest_cpu = 0;
+	unsigned int lowest_rate = UINT_MAX;
+	unsigned int rate[NR_CPUS];
+
+	for_each_online_cpu(cpu) {
+		if (cpu == 0)
+			continue;
+		rate[cpu] = acpuclk_get_rate(cpu);
+		if (rate[cpu] < lowest_rate) {
+			lowest_rate = rate[cpu];
+			slowest_cpu = cpu;
+		}
+	}
+
+	return slowest_cpu;
+}
+EXPORT_SYMBOL_GPL(get_slowest_cpu);
 
 static void __ref cpu_up_work(struct work_struct *work)
 {
@@ -167,12 +189,11 @@ static void __ref cpu_up_work(struct work_struct *work)
 		cpu_up(cpu);
 	}
 }
-
 EXPORT_SYMBOL_GPL(cpu_up_work);
 
 static void cpu_down_work(struct work_struct *work)
 {
-	int cpu;
+	int cpu, slowest_cpu;
 	int lock, target;
 	struct cpu_hotplug *hp = &hotplug;
 
@@ -185,33 +206,43 @@ static void cpu_down_work(struct work_struct *work)
 	for_each_online_cpu(cpu) {
 		if (cpu == 0)
 			continue;
-		cpu_down(cpu);
+		slowest_cpu = get_slowest_cpu();
+		if (slowest_cpu)
+			cpu_down(slowest_cpu);
 		if (target == num_online_cpus())
 			break;
 	}
 }
-
 EXPORT_SYMBOL_GPL(cpu_down_work);
 
 static void online_cpu(unsigned int target)
 {
 	struct cpu_hotplug *hp = &hotplug;
 
+	if (stats.total_cpus == num_online_cpus())
+		return;
+
 	atomic_set(&hp->target_cpus, target);
 	apply_down_lock();
 	queue_work_on(0, hotplug_wq, &hp->up_work);
 }
-
 EXPORT_SYMBOL_GPL(online_cpu);
 
 static void offline_cpu(unsigned int target)
 {
 	struct cpu_hotplug *hp = &hotplug;
+	int lock;
+
+	lock = atomic_read(&hp->down_lock);
+	if (lock)
+		return;
+
+	if (stats.min_cpus == num_online_cpus())
+		return;
 
 	atomic_set(&hp->target_cpus, target);
 	queue_work_on(0, hotplug_wq, &hp->down_work);
 }
-
 EXPORT_SYMBOL_GPL(offline_cpu);
 
 static int reschedule_hotplug_fn(struct cpu_stats *st)
@@ -219,7 +250,6 @@ static int reschedule_hotplug_fn(struct cpu_stats *st)
 	return queue_delayed_work_on(0, hotplug_wq, &hotplug_work,
 				     st->update_rate);
 }
-
 EXPORT_SYMBOL_GPL(reschedule_hotplug_fn);
 
 static void msm_hotplug_fn(struct work_struct *work)
@@ -227,16 +257,20 @@ static void msm_hotplug_fn(struct work_struct *work)
 	unsigned int cur_load, online_cpus, target = 0;
 	unsigned int i;
 	struct cpu_stats *st = get_load_stats();
+	struct cpu_hotplug *hp = &hotplug;
 
 	cur_load = st->current_load;
 	online_cpus = st->online_cpus;
 
-	if (online_cpus == st->min_cpus && lge_boosted) {
-		dprintk("%s: cur_load: %3u online_cpus: %u lge_boosted\n",
-			MSM_HOTPLUG, cur_load, online_cpus);
-		online_cpu(st->min_cpus + 1);
-		reschedule_hotplug_fn(st);
-		return;
+	/* if nr of cpus locked, break out early */
+	if (hp->min_cpus_online == num_possible_cpus()) {
+		if (online_cpus != hp->min_cpus_online)
+			online_cpu(hp->min_cpus_online);
+		goto reschedule;
+	} else if (hp->max_cpus_online == st->min_cpus) {
+		if (online_cpus != hp->max_cpus_online)
+			offline_cpu(hp->max_cpus_online);
+		goto reschedule;
 	}
 
 	for (i = st->min_cpus; i < NUM_LOAD_LEVELS; i++) {
@@ -246,6 +280,11 @@ static void msm_hotplug_fn(struct work_struct *work)
 			break;
 		}
 	}
+
+	if (target > hp->max_cpus_online)
+		target = hp->max_cpus_online;
+	else if (target < hp->min_cpus_online)
+		target = hp->min_cpus_online;
 
 	if (online_cpus != target) {
 		if (target > online_cpus)
@@ -257,9 +296,9 @@ static void msm_hotplug_fn(struct work_struct *work)
 	dprintk("%s: cur_load: %3u online_cpus: %u target: %u\n", MSM_HOTPLUG,
 		cur_load, online_cpus, target);
 
+reschedule:
 	reschedule_hotplug_fn(st);
 }
-
 EXPORT_SYMBOL_GPL(msm_hotplug_fn);
 
 static void msm_hotplug_early_suspend(struct early_suspend *handler)
@@ -272,17 +311,18 @@ static void msm_hotplug_early_suspend(struct early_suspend *handler)
 	if (!policy)
 		return;
 
-	atomic_set(&hp->down_lock, 0);
-	offline_cpu(st->min_cpus);
+	early_suspended = true;
 
 	flush_workqueue(hotplug_wq);
 	cancel_delayed_work_sync(&hotplug_work);
 
-	msm_cpufreq_set_freq_limits(0, policy->min, hp->suspend_freq);
+	atomic_set(&hp->down_lock, 0);
+	offline_cpu(st->min_cpus);
+
+	msm_cpufreq_set_freq_limits(0, MSM_CPUFREQ_NO_LIMIT, hp->suspend_freq);
 	pr_info("%s: Early suspend - max freq: %dMHz\n", MSM_HOTPLUG,
 		hp->suspend_freq / 1000);
 }
-
 EXPORT_SYMBOL_GPL(msm_hotplug_early_suspend);
 
 static void msm_hotplug_late_resume(struct early_suspend *handler)
@@ -294,17 +334,19 @@ static void msm_hotplug_late_resume(struct early_suspend *handler)
 	if (!policy)
 		return;
 
+	early_suspended = false;
+
 	online_cpu(st->total_cpus);
 
 	for_each_possible_cpu(cpu)
-	    msm_cpufreq_set_freq_limits(cpu, policy->min, policy->max);
+	    msm_cpufreq_set_freq_limits(cpu, MSM_CPUFREQ_NO_LIMIT,
+					MSM_CPUFREQ_NO_LIMIT);
 
 	pr_info("%s: Late resume - restore max frequency: %dMHz\n",
 		MSM_HOTPLUG, policy->max / 1000);
 
 	reschedule_hotplug_fn(st);
 }
-
 EXPORT_SYMBOL_GPL(msm_hotplug_late_resume);
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -314,210 +356,6 @@ static struct early_suspend msm_hotplug_suspend = {
 	.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN - 1,
 };
 #endif
-
-/************************** sysfs interface ************************/
-
-static ssize_t show_suspend_freq(struct device *dev,
-				 struct device_attribute *msm_hotplug_attrs,
-				 char *buf)
-{
-	struct cpu_hotplug *hp = &hotplug;
-
-	return sprintf(buf, "%u\n", hp->suspend_freq);
-}
-
-static ssize_t store_suspend_freq(struct device *dev,
-				  struct device_attribute *msm_hotplug_attrs,
-				  const char *buf, size_t count)
-{
-	unsigned int ret;
-	unsigned int val = 0, cpu = 0;
-	struct cpu_hotplug *hp = &hotplug;
-	struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
-
-	if (!policy)
-		return -EINVAL;
-
-	ret = sscanf(buf, "%u", &val);
-	if (ret != 1 || val < policy->min || val > policy->max)
-		return -EINVAL;
-
-	hp->suspend_freq = val;
-
-	return ret;
-}
-
-static ssize_t show_down_lock_duration(struct device *dev,
-				       struct device_attribute
-				       *msm_hotplug_attrs, char *buf)
-{
-	struct cpu_hotplug *hp = &hotplug;
-
-	return sprintf(buf, "%u\n", hp->down_lock_dur);
-}
-
-static ssize_t store_down_lock_duration(struct device *dev,
-					struct device_attribute
-					*msm_hotplug_attrs, const char *buf,
-					size_t count)
-{
-	int ret;
-	unsigned int val;
-	struct cpu_hotplug *hp = &hotplug;
-
-	ret = sscanf(buf, "%u", &val);
-	if (ret != 1)
-		return -EINVAL;
-
-	hp->suspend_freq = val;
-
-	return ret;
-}
-
-static ssize_t show_update_rate(struct device *dev,
-				struct device_attribute *msm_hotplug_attrs,
-				char *buf)
-{
-	struct cpu_stats *st = &stats;
-
-	return sprintf(buf, "%u\n", st->update_rate);
-}
-
-static ssize_t store_update_rate(struct device *dev,
-				 struct device_attribute *msm_hotplug_attrs,
-				 const char *buf, size_t count)
-{
-	int ret;
-	unsigned int val;
-	struct cpu_stats *st = &stats;
-
-	ret = sscanf(buf, "%u", &val);
-	if (ret != 1)
-		return -EINVAL;
-
-	st->update_rate = val;
-
-	return ret;
-}
-
-static ssize_t show_load_levels(struct device *dev,
-				struct device_attribute *msm_hotplug_attrs,
-				char *buf)
-{
-	int i, len = 0;
-
-	if (!buf)
-		return -EINVAL;
-
-	for (i = 0; i < NUM_LOAD_LEVELS; i++) {
-		len += sprintf(buf + len, "%u ", i);
-		len += sprintf(buf + len, "%u ", load[i].up_threshold);
-		len += sprintf(buf + len, "%u", load[i].down_threshold);
-		len += sprintf(buf + len, "\n");
-	}
-
-	return len;
-}
-
-static ssize_t store_load_levels(struct device *dev,
-				 struct device_attribute *msm_hotplug_attrs,
-				 const char *buf, size_t count)
-{
-	int ret;
-	unsigned int val[3];
-
-	ret = sscanf(buf, "%u %u %u", &val[0], &val[1], &val[2]);
-	if (ret != ARRAY_SIZE(val))
-		return -EINVAL;
-
-	load[val[0]].up_threshold = val[1];
-	load[val[0]].down_threshold = val[2];
-
-	return ret;
-}
-
-static ssize_t show_history_size(struct device *dev,
-				 struct device_attribute *msm_hotplug_attrs,
-				 char *buf)
-{
-	struct cpu_stats *st = &stats;
-
-	return sprintf(buf, "%u\n", st->hist_size);
-}
-
-static ssize_t store_history_size(struct device *dev,
-				  struct device_attribute *msm_hotplug_attrs,
-				  const char *buf, size_t count)
-{
-	int ret, state;
-	unsigned int val;
-	struct cpu_stats *st = &stats;
-
-	ret = sscanf(buf, "%u", &val);
-	if (ret != 1 || val == 0)
-		return -EINVAL;
-
-	flush_workqueue(hotplug_wq);
-	cancel_delayed_work_sync(&hotplug_work);
-
-	kfree(st->load_hist);
-	st->hist_size = val;
-
-	st->load_hist = kmalloc(sizeof(st->hist_size), GFP_KERNEL);
-	if (!st->load_hist)
-		return -ENOMEM;
-
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	state = get_suspend_state();
-	if (state == 0)
-#endif
-		reschedule_hotplug_fn(st);
-
-	return ret;
-}
-
-static ssize_t show_current_load(struct device *dev,
-				 struct device_attribute *msm_hotplug_attrs,
-				 char *buf)
-{
-	int state;
-	unsigned int load;
-	struct cpu_stats *st = &stats;
-
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	state = get_suspend_state();
-	if (state > 0)
-		load = 0;
-	else
-#endif
-		load = st->current_load;
-
-	return sprintf(buf, "%u\n", load);
-}
-
-static DEVICE_ATTR(suspend_freq, 644, show_suspend_freq, store_suspend_freq);
-static DEVICE_ATTR(down_lock_duration, 644, show_down_lock_duration,
-		   store_down_lock_duration);
-static DEVICE_ATTR(update_rate, 644, show_update_rate, store_update_rate);
-static DEVICE_ATTR(load_levels, 644, show_load_levels, store_load_levels);
-static DEVICE_ATTR(history_size, 644, show_history_size, store_history_size);
-static DEVICE_ATTR(current_load, 444, show_current_load, NULL);
-
-static struct attribute *msm_hotplug_attrs[] = {
-	&dev_attr_suspend_freq.attr,
-	&dev_attr_down_lock_duration.attr,
-	&dev_attr_update_rate.attr,
-	&dev_attr_load_levels.attr,
-	&dev_attr_history_size.attr,
-	&dev_attr_current_load.attr,
-	NULL,
-};
-
-static struct attribute_group attr_group = {
-	.attrs = msm_hotplug_attrs,
-};
-
-/************************** sysfs end ************************/
 
 static int __init msm_hotplug_init(void)
 {
@@ -547,7 +385,6 @@ static int __init msm_hotplug_init(void)
 #endif
 	return ret;
 }
-
 EXPORT_SYMBOL_GPL(msm_hotplug_init);
 
 late_initcall(msm_hotplug_init);
@@ -574,15 +411,10 @@ static int __init msm_hotplug_device_init(void)
 		return -ENOENT;
 	}
 
-	ret = sysfs_create_group(module_kobj, &attr_group);
-	if (ret)
-		return pr_err("%s: Creation of sysfs: %d\n", MSM_HOTPLUG, ret);
-
 	pr_info("%s: Device init\n", MSM_HOTPLUG);
 
 	return ret;
 }
-
 EXPORT_SYMBOL_GPL(msm_hotplug_device_init);
 
 static void __exit msm_hotplug_device_exit(void)
@@ -590,10 +422,10 @@ static void __exit msm_hotplug_device_exit(void)
 	struct cpu_hotplug *hp = &hotplug;
 	struct cpu_stats *st = &stats;
 
+	unregister_early_suspend(&msm_hotplug_suspend);
 	del_timer(&hp->lock_timer);
 	kfree(st->load_hist);
 }
-
 EXPORT_SYMBOL_GPL(msm_hotplug_device_exit);
 
 late_initcall(msm_hotplug_device_init);
