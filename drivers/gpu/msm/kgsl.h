@@ -27,6 +27,8 @@
 
 #define KGSL_NAME "kgsl"
 
+extern bool go_opt;
+
 /* The number of memstore arrays limits the number of contexts allowed.
  * If more contexts are needed, update multiple for MEMSTORE_SIZE
  */
@@ -77,6 +79,8 @@
 
 
 #define KGSL_MEMFREE_HIST_SIZE	((int)(PAGE_SIZE * 2))
+
+#define KGSL_MAX_NUMIBS 100000
 
 struct kgsl_memfree_hist_elem {
 	unsigned int pid;

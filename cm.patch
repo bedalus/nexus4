@@ -1,0 +1,163 @@
+diff --git a/drivers/char/msm_rotator.c b/drivers/char/msm_rotator.c
+index 684d283..73d81e7 100644
+--- a/drivers/char/msm_rotator.c
++++ b/drivers/char/msm_rotator.c
+@@ -615,6 +615,7 @@ static int get_bpp(int format)
+ 	case MDP_YCRCB_H1V1:
+ 		return 3;
+ 
++	case MDP_YCBYCR_H2V1:
+ 	case MDP_YCRYCB_H2V1:
+ 		return 2;/* YCrYCb interleave */
+ 
+@@ -658,6 +659,7 @@ static int msm_rotator_get_plane_sizes(uint32_t format,	uint32_t w, uint32_t h,
+ 	case MDP_RGB_888:
+ 	case MDP_RGB_565:
+ 	case MDP_BGR_565:
++	case MDP_YCBYCR_H2V1:
+ 	case MDP_YCRYCB_H2V1:
+ 	case MDP_YCBCR_H1V1:
+ 	case MDP_YCRCB_H1V1:
+@@ -1028,7 +1030,7 @@ static int msm_rotator_ycxcx_h2v2(struct msm_rotator_img_info *info,
+ 	return 0;
+ }
+ 
+-static int msm_rotator_ycrycb(struct msm_rotator_img_info *info,
++static int msm_rotator_ycxycx(struct msm_rotator_img_info *info,
+ 			      unsigned int in_paddr,
+ 			      unsigned int out_paddr,
+ 			      unsigned int use_imem,
+@@ -1038,13 +1040,22 @@ static int msm_rotator_ycrycb(struct msm_rotator_img_info *info,
+ 	int bpp;
+ 	uint32_t dst_format;
+ 
+-	if (info->src.format == MDP_YCRYCB_H2V1) {
++	switch (info->src.format) {
++	case MDP_YCBYCR_H2V1:
++		if (info->rotations & MDP_ROT_90)
++			dst_format = MDP_Y_CBCR_H1V2;
++		else
++			dst_format = MDP_Y_CBCR_H2V1;
++		break;
++	case MDP_YCRYCB_H2V1:
+ 		if (info->rotations & MDP_ROT_90)
+ 			dst_format = MDP_Y_CRCB_H1V2;
+ 		else
+ 			dst_format = MDP_Y_CRCB_H2V1;
+-	} else
++		break;
++	default:
+ 		return -EINVAL;
++	}
+ 
+ 	if (info->dst.format != dst_format)
+ 		return -EINVAL;
+@@ -1073,10 +1084,18 @@ static int msm_rotator_ycrycb(struct msm_rotator_img_info *info,
+ 				  (info->dst.width) << 16,
+ 				  MSM_ROTATOR_OUT_YSTRIDE1);
+ 
+-		iowrite32(GET_PACK_PATTERN(CLR_Y, CLR_CR, CLR_Y, CLR_CB, 8),
+-			  MSM_ROTATOR_SRC_UNPACK_PATTERN1);
+-		iowrite32(GET_PACK_PATTERN(0, 0, CLR_CR, CLR_CB, 8),
+-			  MSM_ROTATOR_OUT_PACK_PATTERN1);
++		if (dst_format == MDP_Y_CBCR_H1V2 ||
++			dst_format == MDP_Y_CBCR_H2V1) {
++			iowrite32(GET_PACK_PATTERN(0, CLR_CB, 0, CLR_CR, 8),
++					MSM_ROTATOR_SRC_UNPACK_PATTERN1);
++			iowrite32(GET_PACK_PATTERN(0, 0, CLR_CB, CLR_CR, 8),
++					MSM_ROTATOR_OUT_PACK_PATTERN1);
++		} else {
++			iowrite32(GET_PACK_PATTERN(0, CLR_CR, 0, CLR_CB, 8),
++					MSM_ROTATOR_SRC_UNPACK_PATTERN1);
++			iowrite32(GET_PACK_PATTERN(0, 0, CLR_CR, CLR_CB, 8),
++					MSM_ROTATOR_OUT_PACK_PATTERN1);
++		}
+ 		iowrite32((1  << 18) | 		/* chroma sampling 1=H2V1 */
+ 			  (ROTATIONS_TO_BITMASK(info->rotations) << 9) |
+ 			  1 << 8 |			/* ROT_EN */
+@@ -1632,8 +1651,9 @@ static int msm_rotator_do_rotate_sub(
+ 					    in_chroma_paddr,
+ 					    out_chroma_paddr);
+ 		break;
++	case MDP_YCBYCR_H2V1:
+ 	case MDP_YCRYCB_H2V1:
+-		rc = msm_rotator_ycrycb(img_info,
++		rc = msm_rotator_ycxycx(img_info,
+ 				in_paddr, out_paddr, use_imem,
+ 				msm_rotator_dev->last_session_idx != s,
+ 				out_chroma_paddr);
+@@ -1986,6 +2006,12 @@ static int msm_rotator_start(unsigned long arg,
+ 	case MDP_YCRCB_H1V1:
+ 		info.dst.format = info.src.format;
+ 		break;
++	case MDP_YCBYCR_H2V1:
++		if (info.rotations & MDP_ROT_90)
++			info.dst.format = MDP_Y_CBCR_H1V2;
++		else
++			info.dst.format = MDP_Y_CBCR_H2V1;
++		break;
+ 	case MDP_YCRYCB_H2V1:
+ 		if (info.rotations & MDP_ROT_90)
+ 			info.dst.format = MDP_Y_CRCB_H1V2;
+diff --git a/drivers/video/msm/mdp4_overlay.c b/drivers/video/msm/mdp4_overlay.c
+index b0cef30..b79bfe0 100644
+--- a/drivers/video/msm/mdp4_overlay.c
++++ b/drivers/video/msm/mdp4_overlay.c
+@@ -857,6 +857,7 @@ static void mdp4_overlay_vg_get_src_offset(struct mdp4_overlay_pipe *pipe,
+ 				(pipe->src_y * pipe->srcp1_ystride);
+ 			break;
+ 
++		case MDP_YCBYCR_H2V1:
+ 		case MDP_YCRYCB_H2V1:
+ 			if (pipe->src_x & 0x1)
+ 				pipe->src_x += 1;
+@@ -1056,6 +1057,7 @@ int mdp4_overlay_format2type(uint32 format)
+ 	case MDP_BGRA_8888:
+ 	case MDP_RGBX_8888:
+ 		return OVERLAY_TYPE_RGB;
++	case MDP_YCBYCR_H2V1:
+ 	case MDP_YCRYCB_H2V1:
+ 	case MDP_Y_CRCB_H2V1:
+ 	case MDP_Y_CBCR_H2V1:
+@@ -1222,6 +1224,7 @@ int mdp4_overlay_format2pipe(struct mdp4_overlay_pipe *pipe)
+ 		pipe->element0 = C1_B_Cb;	/* B */
+ 		pipe->bpp = 4;		/* 4 bpp */
+ 		break;
++	case MDP_YCBYCR_H2V1:
+ 	case MDP_YCRYCB_H2V1:
+ 		pipe->frame_format = MDP4_FRAME_FORMAT_LINEAR;
+ 		pipe->fetch_plane = OVERLAY_PLANE_INTERLEAVED;
+@@ -1233,10 +1236,17 @@ int mdp4_overlay_format2pipe(struct mdp4_overlay_pipe *pipe)
+ 		pipe->unpack_tight = 1;
+ 		pipe->unpack_align_msb = 0;
+ 		pipe->unpack_count = 3;
+-		pipe->element3 = C0_G_Y;	/* G */
+-		pipe->element2 = C2_R_Cr;	/* R */
+-		pipe->element1 = C0_G_Y;	/* G */
+-		pipe->element0 = C1_B_Cb;	/* B */
++		if (pipe->src_format == MDP_YCRYCB_H2V1) {
++			pipe->element3 = C0_G_Y;	/* G */
++			pipe->element2 = C2_R_Cr;	/* R */
++			pipe->element1 = C0_G_Y;	/* G */
++			pipe->element0 = C1_B_Cb;	/* B */
++		} else if (pipe->src_format == MDP_YCBYCR_H2V1) {
++			pipe->element3 = C0_G_Y;	/* G */
++			pipe->element2 = C1_B_Cb;	/* B */
++			pipe->element1 = C0_G_Y;	/* G */
++			pipe->element0 = C2_R_Cr;	/* R */
++		}
+ 		pipe->bpp = 2;		/* 2 bpp */
+ 		pipe->chroma_sample = MDP4_CHROMA_H2V1;
+ 		break;
+diff --git a/include/linux/msm_mdp.h b/include/linux/msm_mdp.h
+index 641f423..6934851 100644
+--- a/include/linux/msm_mdp.h
++++ b/include/linux/msm_mdp.h
+@@ -94,6 +94,7 @@ enum {
+ 	MDP_ARGB_8888,    /* ARGB 888 */
+ 	MDP_RGB_888,      /* RGB 888 planer */
+ 	MDP_Y_CRCB_H2V2,  /* Y and CrCb, pseudo planer w/ Cr is in MSB */
++	MDP_YCBYCR_H2V1,  /* YCbYCr interleave */
+ 	MDP_YCRYCB_H2V1,  /* YCrYCb interleave */
+ 	MDP_Y_CRCB_H2V1,  /* Y and CrCb, pseduo planer w/ Cr is in MSB */
+ 	MDP_Y_CBCR_H2V1,   /* Y and CrCb, pseduo planer w/ Cr is in MSB */
