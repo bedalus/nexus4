@@ -40,6 +40,7 @@ static int opt_pos = OPTIMAL_POSITION;
 extern bool go_opt;
 static unsigned int dbs_enable, down_requests, freq_table_position, min_sampling_rate;
 bool early_suspended = false;
+bool plug_boost = false;
 
 struct cpu_dbs_info_s {
 	cputime64_t prev_cpu_idle;
@@ -280,6 +281,11 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		if ((num_online_cpus() == 1) &&			// boost for one core
 			(freq_table_position < opt_pos + 2))
 				freq_table_position = opt_pos + 2;
+
+		if (plug_boost) {
+			freq_table_position = TABLE_SIZE - 1;	//boost for hotplugging
+			plug_boost = false;
+		}
 
 		}
 	} else {

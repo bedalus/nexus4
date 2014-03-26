@@ -38,6 +38,7 @@
 #define DEFAULT_MAX_CPUS_ONLINE	NR_CPUS
 
 extern bool early_suspended;
+extern bool plug_boost;
 
 static unsigned int debug = 0;
 module_param_named(debug_mask, debug, uint, 0644);
@@ -187,6 +188,7 @@ static void __ref cpu_up_work(struct work_struct *work)
 		if (cpu == 0)
 			continue;
 		cpu_up(cpu);
+		plug_boost = true;
 	}
 }
 EXPORT_SYMBOL_GPL(cpu_up_work);
@@ -209,6 +211,7 @@ static void cpu_down_work(struct work_struct *work)
 		slowest_cpu = get_slowest_cpu();
 		if (slowest_cpu)
 			cpu_down(slowest_cpu);
+		plug_boost = true;
 		if (target == num_online_cpus())
 			break;
 	}
