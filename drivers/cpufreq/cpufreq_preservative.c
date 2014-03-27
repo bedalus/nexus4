@@ -25,14 +25,14 @@
 
 #define TRANSITION_LATENCY_LIMIT	(10 * 1000 * 1000)
 #define SAMPLE_RATE			(40009)
-#define OPTIMAL_POSITION		(3)
-#define TABLE_SIZE			(12)
+#define OPTIMAL_POSITION		(2)
+#define TABLE_SIZE			(11)
 #define HYSTERESIS			(7)
 #define UP_THRESH			(100)
 
 static const int valid_fqs[TABLE_SIZE] = {384000, 486000, 594000, 702000,
-			810000, 918000, 1026000, 1134000, 1242000, 1350000,
-			1458000, 1728000};
+			918000, 1026000, 1134000, 1242000, 1350000,
+			1458000, 1512000};
 static void do_dbs_timer(struct work_struct *work);
 
 static int thresh_adj = 0;
