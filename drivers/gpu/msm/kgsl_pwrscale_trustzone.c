@@ -173,8 +173,7 @@ static void tz_idle(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 	priv->bin.total_time = 0;
 	priv->bin.busy_time = 0;
 	idle = (idle > 0) ? idle : 0;
-	go_opt = false;
-	if (idle < 8000) go_opt = true;
+	if (idle < 5000) go_opt = true;
 
 	val = __secure_tz_entry(TZ_UPDATE_ID, idle, device->id);
 	if (val)
