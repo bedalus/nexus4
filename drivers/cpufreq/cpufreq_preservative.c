@@ -267,7 +267,12 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	if (!early_suspended) {
 		// apply hysteresis before dropping to lower bus speeds
 		if (freq_table_position < opt_pos) {
-			go_opt = false;
+			if (mako_boosted || go_opt) {
+				freq_table_position = opt_pos;  // because the scaling logic may have 
+								// requested something lower
+				go_opt = false;
+			}
+
 			if (++down_requests >= HYSTERESIS) {
 				hyst_flag = true;
 			} else {
@@ -277,11 +282,6 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 			down_requests = 0;
 		}
 
-		if (mako_boosted || go_opt) {
-			if (freq_table_position < opt_pos)
-				freq_table_position = opt_pos;  // because the scaling logic may have 
-								// requested something lower
-		}
 
 		if (plug_boost) {
 			freq_table_position = TABLE_SIZE - 1;	//boost for hotplugging
@@ -299,19 +299,21 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 
 	prev_table_position = freq_table_position;
 
-	if (hyst_flag) {
-		prev_table_position = 0;
-		hyst_flag = false;
-	} else {
-		prev_table_position = freq_table_position;
-	}
-
 	// if already on target, break out early
 	if (policy->cur == valid_fqs[freq_table_position])
 		return;
 
 	__cpufreq_driver_target(policy, this_dbs_info->requested_freq,
 			CPUFREQ_RELATION_H);
+
+	if (hyst_flag) {
+		prev_table_position = 0;
+		freq_table_position--;
+		hyst_flag = false;
+	} else {
+		prev_table_position = freq_table_position;
+	}
+
 	return;
 }
 
