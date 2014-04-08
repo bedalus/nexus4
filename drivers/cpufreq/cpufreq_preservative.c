@@ -281,10 +281,6 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 			if (freq_table_position < opt_pos)
 				freq_table_position = opt_pos;  // because the scaling logic may have 
 								// requested something lower
-
-			if ((num_online_cpus() == 1) &&			// boost for one core
-				(freq_table_position < opt_pos + 1))
-					freq_table_position = opt_pos + 1;
 		}
 
 		if (plug_boost) {
