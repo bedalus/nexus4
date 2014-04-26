@@ -7,6 +7,7 @@
  * Based on code from fs/super.c, copyright Linus Torvalds and others.
  * Heavily rewritten.
  */
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 
 #include <linux/syscalls.h>
 #include <linux/export.h>
