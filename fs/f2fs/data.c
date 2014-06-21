@@ -1004,8 +1004,6 @@ static int f2fs_write_end(struct file *file,
 {
 	struct inode *inode = page->mapping->host;
 
-	trace_f2fs_write_end(inode, pos, len, copied);
-
 	SetPageUptodate(page);
 	set_page_dirty(page);
 
@@ -1035,26 +1033,6 @@ static int check_direct_IO(struct inode *inode, int rw,
 		if (iov[i].iov_len & blocksize_mask)
 			return -EINVAL;
 	return 0;
-}
-
-static int f2fs_write_end(struct file *file,
-			struct address_space *mapping,
-			loff_t pos, unsigned len, unsigned copied,
-			struct page *page, void *fsdata)
-{
-	struct inode *inode = page->mapping->host;
-
-	SetPageUptodate(page);
-	set_page_dirty(page);
-
-	if (pos + copied > i_size_read(inode)) {
-		i_size_write(inode, pos + copied);
-		mark_inode_dirty(inode);
-		update_inode_page(inode);
-	}
-
-	f2fs_put_page(page, 1);
-	return copied;
 }
 
 static ssize_t f2fs_direct_IO(int rw, struct kiocb *iocb,
