@@ -28,13 +28,13 @@
 #include "acpuclock.h"
 
 #define MSM_HOTPLUG		"msm_hotplug"
-#define DEFAULT_UPDATE_RATE	HZ / 8
+#define DEFAULT_UPDATE_RATE	HZ
 #define START_DELAY		HZ * 30
 #define NUM_LOAD_LEVELS		5
 #define DEFAULT_HISTORY_SIZE	10
 #define DEFAULT_DOWN_LOCK_DUR	2000
 #define DEFAULT_SUSPEND_FREQ	1512000
-#define DEFAULT_MIN_CPUS_ONLINE	2
+#define DEFAULT_MIN_CPUS_ONLINE	4
 #define DEFAULT_MAX_CPUS_ONLINE	NR_CPUS
 
 extern bool early_suspended;
